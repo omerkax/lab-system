@@ -814,7 +814,7 @@ app.post('/api/mail/gonder', async (req, res) => {
     const { mailler, smtp } = req.body;
     if (!smtp?.user || !smtp?.pass) return res.status(400).json({ ok: false, err: 'SMTP bilgileri eksik' });
     if (!mailler || !Array.isArray(mailler) || mailler.length === 0) return res.status(400).json({ ok: false, err: 'Gönderilecek mail listesi boş' });
-    const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: smtp.user, pass: smtp.pass } });
+    const transporter = nodemailer.createTransport({ host: 'smtp.gmail.com', port: 465, secure: true, family: 4, auth: { user: smtp.user, pass: smtp.pass } });
     let gonderilen = 0;
     const hatalar = [];
     for (const m of mailler) {
