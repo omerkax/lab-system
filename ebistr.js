@@ -28,7 +28,7 @@ var ebistrEtiketMap = { 'UYGUNSUZ': 'Uygunsuz', 'UYARI': 'Sapmali', 'UYGUN': 'Uy
 
 var EBISTR_PROXY = function () {
     var inp = document.getElementById('ebistr-proxy-url-inp');
-    return (inp ? inp.value : '') || 'http://localhost:3737';
+    return (inp ? inp.value : '') || 'https://lab-system-production-fd87.up.railway.app';
 };
 
 // ── INIT (sw() içinde çağrılır) ───────────────────────────────────
@@ -1433,7 +1433,7 @@ function ebistrAyarKaydet(sessiz) {
         smtpUser:  smtpU  ? smtpU.value  : '',
         smtpPass:  smtpP  ? smtpP.value  : '',
         smtpCc:    smtpC  ? smtpC.value  : '',
-        proxyUrl:  proxyU ? proxyU.value : 'http://localhost:3737',
+        proxyUrl:  proxyU ? proxyU.value : 'https://lab-system-production-fd87.up.railway.app',
         mailKosul: mailK  ? mailK.value  : 'uyari'
     };
     lsSet('alibey_ebistr_ayar', data);      // localStorage (hızlı)

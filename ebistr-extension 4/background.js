@@ -1,7 +1,7 @@
 // EBİSTR Token Yakalayıcı v7 — Sessiz Mod
 const PROXY_URL_KEY = 'proxyUrl';
 const TOKEN_KEY = 'ebistrToken';
-const DEFAULT_PROXY = 'http://localhost:3737';
+const DEFAULT_PROXY = 'https://lab-system-production-fd87.up.railway.app';
 
 let lastSentToken = '';
 
