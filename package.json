@@ -2,8 +2,9 @@
   "name": "cari-2",
   "version": "1.0.0",
   "description": "",
-  "main": "ebistr-kurallar.js",
+  "main": "ebistr-proxy.js",
   "scripts": {
+    "start": "node ebistr-proxy.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
