@@ -11,7 +11,7 @@ const nodemailer = require('nodemailer');
 const fs = require('fs');
 const path = require('path');
 const app = express();
-const PORT = 3737;
+const PORT = process.env.PORT || 3737;
 
 // .env dosyasını oku (varsa)
 const envPath = path.join(__dirname, '.env');
