@@ -1598,7 +1598,7 @@ function ebistrTopluMailFirma(encodedFirmaAd) {
     if (!yd || !yd.mail1) { toast('Bu firmaya tanımlı mail adresi yok', 'err'); return; }
 
     // Filtredeki tüm bu firmaya ait raporlar
-    var raporlar = ebistrAnalizler.filter(function(a) { return a.yapiDenetim === firmaAd; });
+    var raporlar = ebistrFiltreliListe.filter(function(a) { return a.yapiDenetim === firmaAd; });
     if (!raporlar.length) { toast('Bu firmaya ait rapor yok', 'amb'); return; }
 
     var sz = {UYGUNSUZ:0,SAPMA_KURTARDI:0,UYARI:0,UYGUN:0,HAFTALIK:0};
@@ -1643,7 +1643,7 @@ function ebistrTopluMailFirma(encodedFirmaAd) {
 // ── TOPLU MAIL ÖNİZLE ─────────────────────────────────────────────
 function ebistrTopluMailOnizle(encodedFirmaAd) {
     var firmaAd = decodeURIComponent(encodedFirmaAd);
-    var raporlar = ebistrAnalizler.filter(function(a) { return a.yapiDenetim === firmaAd; });
+    var raporlar = ebistrFiltreliListe.filter(function(a) { return a.yapiDenetim === firmaAd; });
     if (!raporlar.length) { toast('Bu firmaya ait rapor yok', 'amb'); return; }
     var ayar = lsGet('alibey_ebistr_ayar') || {};
     var html = _ebistrTopluMailHtml(raporlar, ayar.smtpUser || 'Alibey Lab', firmaAd);
