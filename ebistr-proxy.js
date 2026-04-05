@@ -812,22 +812,23 @@ app.get('/api/ebistr/taglar', (req, res) => {
 // ── MAİL GÖNDERME ──────────────────────────────────────────────────
 app.post('/api/mail/gonder', async (req, res) => {
     const { mailler, smtp } = req.body;
-    if (!smtp?.user || !smtp?.pass) return res.status(400).json({ ok: false, err: 'SMTP bilgileri eksik' });
+    if (!smtp?.user) return res.status(400).json({ ok: false, err: 'Gönderici mail adresi eksik' });
     if (!mailler || !Array.isArray(mailler) || mailler.length === 0) return res.status(400).json({ ok: false, err: 'Gönderilecek mail listesi boş' });
-    const transporter = nodemailer.createTransport({ host: 'smtp.gmail.com', port: 587, secure: false, requireTLS: true, auth: { user: smtp.user, pass: smtp.pass }, tls: { rejectUnauthorized: false } });
+    const resendKey = process.env.RESEND_API_KEY;
+    if (!resendKey) return res.status(500).json({ ok: false, err: 'RESEND_API_KEY tanımlı değil' });
     let gonderilen = 0;
     const hatalar = [];
     for (const m of mailler) {
         try {
-            await transporter.sendMail({
-                from: `"Alibey Laboratuvar" <${smtp.user}>`,
-                to: m.to,
-                subject: m.konu,
-                html: m.html,
-                text: m.text || 'Bu e-posta HTML formatinda hazirlanmistir. Lutfen HTML destekli bir e-posta istemcisi kullaniniz.\n\nAlibey Laboratuvar ERP — Beton Uygunluk Bildirimi\nGonderen: ' + smtp.user
+            const r = await fetch('https://api.resend.com/emails', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ from: 'Alibey Laboratuvar <onboarding@resend.dev>', to: [m.to], subject: m.konu, html: m.html })
             });
-            gonderilen++;
-            await new Promise(r => setTimeout(r, 100)); // Hızlandırıldı (300 -> 100)
+            const d = await r.json();
+            if (d.id) gonderilen++;
+            else hatalar.push({ konu: m.konu, hata: d.message || JSON.stringify(d) });
+            await new Promise(r => setTimeout(r, 100));
         } catch (e) { hatalar.push({ konu: m.konu, hata: e.message }); }
     }
     res.json({ ok: true, gonderilen, hatalar });
