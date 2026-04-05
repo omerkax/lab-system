@@ -22,6 +22,7 @@ function fbPull(collection, docId, cb) {
 var ebistrNumuneler = [];
 var ebistrAnalizler = [];
 var ebistrFiltreSec = 'hepsi';
+var ebistrFiltreliListe = []; // Ekranda görünen filtrelenmiş liste
 var ebistrYdList = [];
 var ebistrRenkMap = { 'UYGUNSUZ': 'var(--red)', 'UYARI': '#fbbf24', 'UYGUN': 'var(--grn)', 'HAFTALIK': 'var(--acc)', 'SAPMA_KURTARDI': '#f97316' };
 var ebistrEtiketMap = { 'UYGUNSUZ': 'Uygunsuz', 'UYARI': 'Sapmali', 'UYGUN': 'Uygun', 'HAFTALIK': 'Haftalik', 'SAPMA_KURTARDI': 'Sapma Uyarisi' };
@@ -678,11 +679,8 @@ function ebistrFiltrele(filtre) {
     var fBol  = ((document.getElementById('ebistr-f-bolum')|| {}).value || '').toLowerCase();
     var fMail = (document.getElementById('ebistr-f-mail')  || {}).value || '';
 
-    var liste = ebistrAnalizler.filter(function (a) {
-        // Durum Filtresi (Tablar)
+    ebistrFiltreliListe = ebistrAnalizler.filter(function (a) {
         var df = ebistrFiltreSec === 'hepsi' || a.durum === ebistrFiltreSec;
-        
-        // Gelişmiş Filtreler
         var tf = true;
         if (fBas) tf = tf && (a.breakDate >= fBas);
         if (fBit) tf = tf && (a.breakDate <= fBit);
@@ -692,25 +690,17 @@ function ebistrFiltrele(filtre) {
         if (fYibf) tf = tf && (String(a.yibf || '').toLowerCase().indexOf(fYibf) >= 0);
         if (fNo)   tf = tf && (String(a.brnNo || '').toLowerCase().indexOf(fNo) >= 0 || String(a.labReportNo || '').toLowerCase().indexOf(fNo) >= 0);
         if (fBol)  tf = tf && (String(a.yapiElem || '').toLowerCase().indexOf(fBol) >= 0);
-        
         if (fMail) {
             if (fMail === 'gonderildi') tf = tf && a.mailGonderildi;
             else if (fMail === 'bekliyor') tf = tf && !a.mailGonderildi;
         }
-
-        // Genel Arama Filtresi
-        var da = !ara ||
-            (a.brnNo || '').toLowerCase().indexOf(ara) >= 0 ||
-            (a.yapiDenetim || '').toLowerCase().indexOf(ara) >= 0 ||
-            (a.betonSinifi || '').toLowerCase().indexOf(ara) >= 0 ||
-            (a.labReportNo || '').toLowerCase().indexOf(ara) >= 0 ||
-            (a.yapiElem || '').toLowerCase().indexOf(ara) >= 0 ||
-            (a.yibf || '').toLowerCase().indexOf(ara) >= 0 ||
-            (a.contractor || '').toLowerCase().indexOf(ara) >= 0 ||
-            (a.buildingOwner || '').toLowerCase().indexOf(ara) >= 0;
-
-        return df && tf && da;
+        if (ara) {
+            var hay = [a.brnNo, a.labReportNo, a.yapiDenetim, a.contractor, a.buildingOwner, a.yapiElem, a.betonSinifi].join(' ').toLowerCase();
+            tf = tf && hay.indexOf(ara) >= 0;
+        }
+        return df && tf;
     });
+    var liste = ebistrFiltreliListe;
 
 
     // ── Yapı Denetim Gruplarına Böl ─────────────────────────────────
@@ -1529,8 +1519,8 @@ function ebistrTopluMailGonder() {
     var ayar = lsGet('alibey_ebistr_ayar') || {};
     if (!ayar.smtpUser || !ayar.smtpPass) { toast('SMTP ayarları eksik', 'err'); return; }
 
-    // Mail gönderilmemiş tüm raporlar (HAFTALIK dahil)
-    var hedefler = ebistrAnalizler.filter(function(a) { return !a.mailGonderildi; });
+    // Ekranda görünen (filtrelenmiş) raporlardan mail gönderilmemişler
+    var hedefler = ebistrFiltreliListe.filter(function(a) { return !a.mailGonderildi; });
     if (!hedefler.length) { toast('Gönderilecek rapor yok', 'amb'); return; }
 
     // Yapı denetim bazında grupla
