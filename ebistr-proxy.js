@@ -823,7 +823,7 @@ app.post('/api/mail/gonder', async (req, res) => {
             const r = await fetch('https://api.resend.com/emails', {
                 method: 'POST',
                 headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ from: 'Alibey Laboratuvar <onboarding@resend.dev>', to: [m.to], subject: m.konu, html: m.html })
+                body: JSON.stringify({ from: 'Alibey Laboratuvar <alibeybetoniletisim@omerkaya.com.tr>', to: [m.to], subject: m.konu, html: m.html })
             });
             const d = await r.json();
             if (d.id) gonderilen++;
