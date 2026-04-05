@@ -816,18 +816,19 @@ app.post('/api/mail/gonder', async (req, res) => {
     if (!mailler || !Array.isArray(mailler) || mailler.length === 0) return res.status(400).json({ ok: false, err: 'Gönderilecek mail listesi boş' });
     const resendKey = process.env.RESEND_API_KEY;
     if (!resendKey) return res.status(500).json({ ok: false, err: 'RESEND_API_KEY tanımlı değil' });
+    const transporter = nodemailer.createTransport({
+        host: 'smtp.resend.com', port: 465, secure: true,
+        auth: { user: 'resend', pass: resendKey }
+    });
     let gonderilen = 0;
     const hatalar = [];
     for (const m of mailler) {
         try {
-            const r = await fetch('https://api.resend.com/emails', {
-                method: 'POST',
-                headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ from: 'Alibey Laboratuvar <alibeybetoniletisim@omerkaya.com.tr>', to: [m.to], subject: m.konu, html: m.html })
+            await transporter.sendMail({
+                from: '"Alibey Laboratuvar" <alibeybetoniletisim@omerkaya.com.tr>',
+                to: m.to, subject: m.konu, html: m.html
             });
-            const d = await r.json();
-            if (d.id) gonderilen++;
-            else hatalar.push({ konu: m.konu, hata: d.message || JSON.stringify(d) });
+            gonderilen++;
             await new Promise(r => setTimeout(r, 100));
         } catch (e) { hatalar.push({ konu: m.konu, hata: e.message }); }
     }
