@@ -75,50 +75,50 @@ function _ebistrSilentRefresh() {
     .then(function(d) {
         if (!d.ok || !d.numuneler) return;
         ebistrNumuneler = d.numuneler;
+        _ebistrMailDurumSunucudan(d);
         var syncTime = d.lastSync ? new Date(d.lastSync).toLocaleString('tr-TR') : '';
         var info = document.getElementById('ebistr-csv-info');
         if (info) info.textContent = ebistrNumuneler.length + ' numune hazır. (Son Senk: ' + syncTime + ')';
         var syncLbl = document.getElementById('ebistr-yaklasan-sync-lbl');
         if (syncLbl && syncTime) syncLbl.textContent = 'Son Güncelleme: ' + syncTime;
+        ebistrYdTespit(ebistrNumuneler);
+        ebistrAnalizEt();
         fbSyncEBISTR(ebistrNumuneler, ebistrAnalizler);
     })
     .catch(function() {}); // sessiz hata — proxy kapalıysa geçilir
 }
 
-// ── FIRESTORE SYNC ──
-// Sadece numuneler + ince mailDurum haritası kaydedilir — tam analizler Firestore 1MB limitini aşıyor
-var _ebistrMailDurum = {}; // { brnNo: true/false } — analiz sonrası merge için
+// ── Sunucu JSON — paylaşımlı; localStorage / Firestore ebistr_cache kullanılmaz ──
+var _ebistrMailDurum = {};
+
+function _ebistrMailDurumSunucudan(d) {
+    if (d && d.mailDurum && typeof d.mailDurum === 'object') _ebistrMailDurum = d.mailDurum;
+}
 
 function fbSyncEBISTR(numuneler, analizler) {
     if (!numuneler) return;
-    // Slim mailDurum map — sadece gönderilmiş olanları tut
     var mailDurum = {};
     (analizler || []).forEach(function(a) {
         if (a.mailGonderildi) mailDurum[a.brnNo || a.labReportNo || ''] = true;
     });
-    var data = {
-        numuneler: numuneler,
-        mailDurum: mailDurum,
-        time: new Date().toLocaleString('tr-TR'),
-        device: navigator.userAgent.slice(0, 50)
-    };
-    lsSet('alibey_ebistr_cache', data);
-    fbSave('ebistr_cache', 'current_data', data);
-    var syncLbl = document.getElementById('ebistr-yaklasan-sync-lbl');
-    if (syncLbl) syncLbl.textContent = 'Son Güncelleme: ' + data.time;
+    fetch(EBISTR_PROXY() + '/api/ebistr/mail-durum', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ merge: mailDurum })
+    }).catch(function() {});
 }
 
 function fbPullEBISTR() {
-    fbPull('ebistr_cache', 'current_data', function(cache) {
-        if (cache && cache.numuneler) {
-            ebistrNumuneler = cache.numuneler;
-            _ebistrMailDurum = cache.mailDurum || {};
-            var syncLbl = document.getElementById('ebistr-yaklasan-sync-lbl');
-            if (syncLbl && cache.time) syncLbl.textContent = 'Son Güncelleme: ' + cache.time;
-            ebistrYdTespit(ebistrNumuneler);
-            ebistrAnalizEt(); // analiz bittikten sonra mailDurum merge edilir (ebistrAnalizEt içinde)
-        }
-    });
+    fetch(EBISTR_PROXY() + '/api/ebistr/mail-durum')
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (d && d.ok && d.mailDurum) _ebistrMailDurum = d.mailDurum;
+            if (ebistrNumuneler && ebistrNumuneler.length) {
+                ebistrYdTespit(ebistrNumuneler);
+                ebistrAnalizEt();
+            }
+        })
+        .catch(function() {});
 }
 
 // ── PROXY KONTROL ─────────────────────────────────────────────────
@@ -136,7 +136,7 @@ function ebistrProxyKontrol() {
         .catch(function () {
             if (dot) dot.className = 'ebistr-proxy-dot err';
             if (bar) bar.className = 'ebistr-proxy-bar err';
-            if (lbl) lbl.textContent = 'Proxy çalışmıyor — node ebistr-proxy.js';
+            if (lbl) lbl.textContent = 'Lab API yok — Next /api/ebistr/status (veya token)';
         });
 }
 
@@ -204,6 +204,7 @@ function ebistrVeriGuncelle() {
     .then(function(d) {
         if (!d.ok) { toast(d.err || 'Hata oluştu', 'err'); if (info) info.textContent = '❌ ' + (d.err || 'Hata'); return; }
         ebistrNumuneler = d.numuneler || [];
+        _ebistrMailDurumSunucudan(d);
         var syncTime = d.lastSync ? new Date(d.lastSync).toLocaleString('tr-TR') : '—';
         var badge = document.getElementById('ebistr-csv-info-badge');
         if (badge) badge.className = 'ebistr-status-badge ready';
@@ -272,6 +273,7 @@ function _ebistrFetch(bas, bit) {
             return;
         }
         ebistrNumuneler = d.numuneler || [];
+        _ebistrMailDurumSunucudan(d);
         var syncTime = d.lastSync ? new Date(d.lastSync).toLocaleString('tr-TR') : '—';
         if (badge) badge.className = 'ebistr-status-badge ready';
         if (dot) dot.style.background = 'var(--grn)';
@@ -422,7 +424,7 @@ function ebistrAnalizEt() {
             return (durumSira[a.durum] || 5) - (durumSira[b.durum] || 5);
         });
 
-        // Firestore'dan gelen mailDurum haritasını merge et
+        // Sunucudaki mailDurum (data/ebistr_cache.json) haritasını uygula
         if (_ebistrMailDurum && Object.keys(_ebistrMailDurum).length) {
             ebistrAnalizler.forEach(function(a) {
                 var key = a.brnNo || a.labReportNo || '';
@@ -540,7 +542,7 @@ function ebistrTs13515(brnNo, numuneler) {
         mainKriter = { uygun: false, kriterler: [], fcm: 0, fciMin: 0 };
         if (n7.length > 0) {
             var ort7v = n7.reduce(function (a, b) { return a + b.fc; }, 0) / n7.length;
-            sorunlar.push('28 günlük kırım bekleniyor. 7g Ort: ' + ort7v.toFixed(1) + ' (Tahmini 28g: ~' + (ort7v / 0.75).toFixed(1) + ')');
+            sorunlar.push('28 günlük kırım bekleniyor. 7g Ort: ' + ort7v.toFixed(1) + ' (Tahmini 28g: ~' + (ort7v / 0.85).toFixed(1) + ')');
             durum = 'HAFTALIK';
         } else {
             sorunlar.push('Geçerli veri girişi yok');
@@ -998,7 +1000,7 @@ function ebistrDetay(idx) {
         if (a.durum === 'HAFTALIK') {
             var n7takimlar = a.n7Takimlar || [];
             var n7Satirlar = n7takimlar.map(function(t) {
-                var tahmini28 = (t.ortalama / 0.70).toFixed(1);
+                var tahmini28 = (t.ortalama / 0.85).toFixed(1);
                 return '<tr style="border-top:1px solid var(--bdr)">' +
                     '<td style="padding:8px 10px;font-family:var(--mono);font-size:12px">' + t.irsaliye + '</td>' +
                     '<td style="padding:8px 10px;text-align:right;font-family:var(--mono)">' +
@@ -1150,7 +1152,7 @@ function ebistrMailHtml(a, fromName) {
     var _takimlarMail = isHaftalik ? (a.n7Takimlar || []) : (a.adjTakimlar || a.takimlar || []);
     var takimSatirlari = _takimlarMail.map(function(t) {
         var fcStr = (t.fcDegerler || []).map(function(v){ return parseFloat(v).toFixed(1); }).join('&nbsp;&nbsp;&nbsp;');
-        var tahmini = isHaftalik && t.ortalama ? '<br><span style="font-size:11px;color:#64748b">Tahmini 28g: ~' + (t.ortalama / 0.70).toFixed(1) + ' MPa</span>' : '';
+        var tahmini = isHaftalik && t.ortalama ? '<br><span style="font-size:11px;color:#64748b">Tahmini 28g: ~' + (t.ortalama / 0.85).toFixed(1) + ' MPa</span>' : '';
         var sapmaliStr = t.sapmaliFc != null ? '<br><span style="font-size:11px;color:#ea580c;font-weight:700">Sapmalı: ' + parseFloat(t.sapmaliFc).toFixed(1) + ' MPa çıkarıldı</span>' : '';
         var gecerli = t.gecerliAdj !== undefined ? t.gecerliAdj : t.gecerli;
         var ortRenk = gecerli === false ? '#dc2626' : (isHaftalik ? '#2563eb' : '#16a34a');
@@ -1380,7 +1382,8 @@ function ebistrYdEkle() {
     ebistrAyarKaydet(true);
 }
 
-// ── AYARLAR FONKSİYONLARI ─────────────────────────────────────────
+// ── AYARLAR (Firestore — paylaşımlı; localStorage yok) ──────────────
+var _ebistrAyarCache = {};
 
 function _ebistrAyarUygula(kaydedilen) {
     if (!kaydedilen) return;
@@ -1399,14 +1402,10 @@ function _ebistrAyarUygula(kaydedilen) {
 }
 
 function ebistrAyarYukle() {
-    // Önce localStorage'dan yükle (hızlı başlangıç)
-    var ls = lsGet('alibey_ebistr_ayar');
-    if (ls) _ebistrAyarUygula(ls);
-    else ebistrYdRender();
-    // Sonra Firestore'dan yükle (güncel veri)
+    ebistrYdRender();
     fbPull('sys_settings', 'ebistr_ayar', function(fs) {
         if (fs) {
-            lsSet('alibey_ebistr_ayar', fs); // localStorage'ı güncelle
+            _ebistrAyarCache = fs;
             _ebistrAyarUygula(fs);
         }
     });
@@ -1423,11 +1422,11 @@ function ebistrAyarKaydet(sessiz) {
         smtpUser:  smtpU  ? smtpU.value  : '',
         smtpPass:  smtpP  ? smtpP.value  : '',
         smtpCc:    smtpC  ? smtpC.value  : '',
-        proxyUrl:  proxyU ? proxyU.value : 'https://lab-system-production-fd87.up.railway.app',
+        proxyUrl:  proxyU ? proxyU.value : '',
         mailKosul: mailK  ? mailK.value  : 'uyari'
     };
-    lsSet('alibey_ebistr_ayar', data);      // localStorage (hızlı)
-    fbSave('sys_settings', 'ebistr_ayar', data); // Firestore (kalıcı)
+    _ebistrAyarCache = data;
+    fbSave('sys_settings', 'ebistr_ayar', data); // Firestore (tüm kullanıcılar)
     if (!sessiz) {
         var msg = document.getElementById('ebistr-ayar-msg');
         if (msg) { msg.textContent = '✓ Kaydedildi'; setTimeout(function(){ msg.textContent = ''; }, 2000); }
@@ -1459,7 +1458,7 @@ function ebistrSmtpTest() {
 function ebistrMailOnizle(idx) {
     var a = ebistrAnalizler[idx];
     if (!a) return;
-    var ayar = lsGet('alibey_ebistr_ayar') || {};
+    var ayar = _ebistrAyarCache || {};
     var html = ebistrMailHtml(a, ayar.smtpUser || 'Alibey Lab');
     var modal = document.getElementById('ebistr-mail-modal');
     var frame = document.getElementById('ebistr-mail-frame');
@@ -1483,7 +1482,7 @@ function ebistrTekMail(idx) {
     if (!a) return;
     var yd = ebistrYdBul(a.yapiDenetim);
     if (!yd || !yd.mail1) { toast('Bu firma için mail adresi tanımlı değil. Yapı Denetim sekmesine gidin.', 'err'); return; }
-    var ayar = lsGet('alibey_ebistr_ayar') || {};
+    var ayar = _ebistrAyarCache || {};
     if (!ayar.smtpUser || !ayar.smtpPass) { toast('SMTP ayarları eksik. Ayarlar sekmesine gidin.', 'err'); return; }
     var alicilar = [yd.mail1, yd.mail2, ayar.smtpCc].filter(Boolean);
     var html = ebistrMailHtml(a, ayar.smtpUser);
@@ -1516,7 +1515,7 @@ function ebistrTekMail(idx) {
 
 function ebistrTopluMailGonder() {
     if (typeof _canMail === 'function' && !_canMail()) { toast('Mail gönderme yetkiniz yok', 'err'); return; }
-    var ayar = lsGet('alibey_ebistr_ayar') || {};
+    var ayar = _ebistrAyarCache || {};
     if (!ayar.smtpUser || !ayar.smtpPass) { toast('SMTP ayarları eksik', 'err'); return; }
 
     // Ekranda görünen (filtrelenmiş) raporlardan mail gönderilmemişler
@@ -1591,7 +1590,7 @@ function ebistrTopluMailGonder() {
 function ebistrTopluMailFirma(encodedFirmaAd) {
     if (typeof _canMail === 'function' && !_canMail()) { toast('Mail gönderme yetkiniz yok', 'err'); return; }
     var firmaAd = decodeURIComponent(encodedFirmaAd);
-    var ayar = lsGet('alibey_ebistr_ayar') || {};
+    var ayar = _ebistrAyarCache || {};
     if (!ayar.smtpUser || !ayar.smtpPass) { toast('SMTP ayarları eksik', 'err'); return; }
 
     var yd = ebistrYdBul(firmaAd);
@@ -1645,7 +1644,7 @@ function ebistrTopluMailOnizle(encodedFirmaAd) {
     var firmaAd = decodeURIComponent(encodedFirmaAd);
     var raporlar = ebistrFiltreliListe.filter(function(a) { return a.yapiDenetim === firmaAd; });
     if (!raporlar.length) { toast('Bu firmaya ait rapor yok', 'amb'); return; }
-    var ayar = lsGet('alibey_ebistr_ayar') || {};
+    var ayar = _ebistrAyarCache || {};
     var html = _ebistrTopluMailHtml(raporlar, ayar.smtpUser || 'Alibey Lab', firmaAd);
     var frame = document.getElementById('ebistr-mail-frame');
     var modal = document.getElementById('ebistr-mail-modal');
@@ -1694,7 +1693,7 @@ function _ebistrTopluMailHtml(raporlar, fromUser, firmaAd) {
             var fcArr = (t.fcDegerler || []).map(function(v){ return parseFloat(v).toFixed(1); });
             var ort = t.sapmaliFc != null ? (t.ortalamaAdj || t.ortalama) : t.ortalama;
             var sapmaTxt = t.sapmaliFc != null ? ' [sapmali:' + parseFloat(t.sapmaliFc).toFixed(1) + ' cikarildi]' : '';
-            var tahTxt = isHaf ? ' (~' + (ort / 0.70).toFixed(1) + ' MPa 28g tahmini)' : '';
+            var tahTxt = isHaf ? ' (~' + (ort / 0.85).toFixed(1) + ' MPa 28g tahmini)' : '';
             return (t.irsaliye || '?') + ': ' + fcArr.join(', ') + '  Ort=' + parseFloat(ort).toFixed(1) + ' MPa' + sapmaTxt + tahTxt;
         }).join('\n');
 

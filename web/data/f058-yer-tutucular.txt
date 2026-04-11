@@ -1,0 +1,52 @@
+F058 KÜR FORMU — WORD ŞABLONUNA EKLENECEK YER TUTUCULAR (docxtemplater)
+================================================================================
+
+ÖNEMLİ
+------
+1) Kök dizindeki resmi dosya .doc ise: Word’de açın → Farklı Kaydet → "Word Belgesi (.docx)".
+   Görünüm ve tablolar aynı kalır; dosya adı F058 ile başlamalı (ör. mevcut isim .docx ile).
+
+2) Aşağıdaki etiketleri Word’de TEK PARÇA metin olarak yazın (kopyala-yapıştır). Word bazen
+   etiketi birden fazla "run"a böler; o zaman docxtemplater çalışmaz. Sunucu, basit {etiket}
+   bölünmelerini otomatik birleştirmeye çalışır; yine de sorun olursa etiketi silip Not Defteri’nden
+   yapıştırın veya Word’de tüm etiketi seçip Ctrl+Space ile biçimi sıfırlayın.
+
+3) Tabloda {#satirlar}…{/satirlar} satırı yoksa (yalnızca boş satırlar varsa), dışa aktarma sırasında
+   ilk veri satırı otomatik döngü satırına çevrilir ve fazla boş satırlar atılır. Özel düzen
+   istiyorsanız Word’de tek bir veri satırına f058’deki döngü etiketlerini elle koymanız yeterlidir.
+
+ÜST BİLGİ (paragraf veya tablo üstü hücreler — imza dışı)
+--------------------------------------------------------
+{tarihAraligi}     → Rapor tarih aralığı (ör. 01.04.2026 — 11.04.2026)
+{olcumAraligi}     → Kaç saatte bir satır + jitter notu
+{olusturulma}      → Dışa aktarma zamanı
+{kontrolEden}      → Telemetri ekranında yazılan / seçilen “kontrol eden” adı
+{havuzNo}          → 1, 2 veya “1 ve 2” (ekranda hangi havuz modu seçiliyse)
+{formTarihi}       → Opsiyonel; boş bırakılırsa Word’de boş kalır (gg.aa.yyyy)
+{formSaati}        → Opsiyonel; boş bırakılırsa boş (saat:dakika, tr-TR biçimi)
+
+TABLO SATIRLARI (tekrarlayan satır)
+-----------------------------------
+Ölçüm tablosunda, TEK bir veri satırında dört hücre kullanın (docxtemplater satır döngüsü):
+
+  Hücre 1:  {#satirlar}{tarih}
+  Hücre 2:  {saat}
+  Hücre 3:  {h1}
+  Hücre 4:  {h2}{/satirlar}
+
+Alternatif (kapanış tek hücrede): {#satirlar}{tarih} | {saat} | {h1} | {h2} ve son hücrede yalnız {/satirlar}
+
+- {tarih}  = gün (gg.aa.yyyy)
+- {saat}   = saat:dakika
+- {h1}     = Havuz 1 sıcaklığı (°C, virgüllü) veya —
+- {h2}     = Havuz 2 sıcaklığı veya —
+
+Başlık satırınız (Tarih, Saat, …) bu satırın ÜSTÜNDE kalabilir; docxtemplater yalnızca
+işaretli satırı satirlar kadar çoğaltır.
+
+ETİKET İSİMLERİ DEĞİŞTİRİLEMEZ
+------------------------------
+Kod şu alan adlarını gönderir: tarihAraligi, olcumAraligi, olusturulma, kontrolEden, havuzNo,
+formTarihi, formSaati, satirlar, tarih, saat, h1, h2
+
+Birden fazla F058*.docx kökteyse Telemetri’de şablon seçilir; “… - 2.docx” gibi isimler öntanımlı önceliklidir.

@@ -1,7 +1,8 @@
 // EBİSTR Token Yakalayıcı v7 — Sessiz Mod
 const PROXY_URL_KEY = 'proxyUrl';
 const TOKEN_KEY = 'ebistrToken';
-const DEFAULT_PROXY = 'https://lab-system-production-fd87.up.railway.app';
+// ⚠️ Buraya Next.js uygulamanızın canlı URL'ini girin:
+const DEFAULT_PROXY = 'https://lab-system-production-fd87.up.railway.app'; // TODO: Next.js app URL ile değiştirin
 
 let lastSentToken = '';
 

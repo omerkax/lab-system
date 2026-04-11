@@ -1,4 +1,5 @@
-const DEFAULT_PROXY = 'http://localhost:3737';
+const DEFAULT_PROXY = ''; // Popup'ta boş kalırsa background.js'deki DEFAULT_PROXY devreye girer
+
 
 document.addEventListener('DOMContentLoaded', function () {
     yukle();
@@ -26,7 +27,39 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     });
+
+    document.getElementById('btnCopyToken').addEventListener('click', function () {
+        chrome.storage.local.get(['ebistrToken'], function (r) {
+            var t = r.ebistrToken;
+            if (!t) {
+                alert('Kayıtlı token yok. Önce business.ebistr.com sayfasında oturum açıp sayfayı yenileyin.');
+                return;
+            }
+            function ok() { alert('Panoya kopyalandı. Telefonda Laboratuvar → EBİSTR Ayar → Token alanına yapıştırıp Sunucuya kaydedin.'); }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(t).then(ok).catch(function () { fallbackCopy(t, ok); });
+            } else {
+                fallbackCopy(t, ok);
+            }
+        });
+    });
 });
+
+function fallbackCopy(text, done) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+        document.execCommand('copy');
+        done();
+    } catch (e) {
+        alert('Kopyalanamadı. Token uzun; eklenti depolamasından manuel alın.');
+    }
+    document.body.removeChild(ta);
+}
 
 function yukle() {
     chrome.storage.local.get(['proxyUrl', 'ebistrToken', 'tokenZaman', 'tarBas', 'tarBit'], function (r) {

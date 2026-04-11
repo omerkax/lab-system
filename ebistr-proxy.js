@@ -290,10 +290,23 @@ async function performSync() {
     }
 }
 
-// 1 saatte bir otomatik senkronize et
-setInterval(performSync, 1 * 60 * 60 * 1000);
+// Otomatik senkron (varsayılan 5 dk — web/lib/ebistr-engine ile aynı; eskiden 1 saatti)
+const EBISTR_SYNC_MS = parseInt(process.env.EBISTR_SYNC_MS || '', 10) || 5 * 60 * 1000;
+setInterval(performSync, EBISTR_SYNC_MS);
 // Başlangıçta 5 saniye sonra ilk senkronizasyonu yap
 setTimeout(performSync, 5000);
+
+// ebistr.js ebistrCanliCek(force) — GET ile tam tarama (önceden route yoktu)
+app.get('/api/ebistr/sync-now', async (req, res) => {
+    if (authTokens.length === 0) return res.status(401).json({ ok: false, err: 'Token yok' });
+    if (isSyncing) return res.json({ ok: true, msg: 'Senkron zaten çalışıyor', lastSync: ebistrCache.sonGuncelleme });
+    try {
+        await performSync();
+        return res.json({ ok: true, lastSync: ebistrCache.sonGuncelleme });
+    } catch (e) {
+        return res.status(500).json({ ok: false, err: e.message || String(e) });
+    }
+});
 
 // Her gün gece yarısı eski kayıtları temizle
 setInterval(cleanupFirestore, 24 * 60 * 60 * 1000);

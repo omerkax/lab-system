@@ -12,5 +12,8 @@ node_modules/
 # macOS
 .DS_Store
 
+# Microsoft Office geçici kilit dosyaları
+~$*
+
 # Claude Code
 .claude/
