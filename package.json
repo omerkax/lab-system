@@ -17,8 +17,5 @@
     "node-fetch": "^2.7.0",
     "nodemailer": "^8.0.4",
     "pdf-parse": "^2.4.5"
-  },
-  "devDependencies": {
-    "next": "16.2.2"
   }
 }
