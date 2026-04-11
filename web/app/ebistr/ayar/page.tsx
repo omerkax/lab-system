@@ -139,7 +139,7 @@ export default function Page() {
     };
     btn?.addEventListener('click', sendManualToken);
 
-    void ensureEbistrScript('/ebistr.js?v=20260411-ebis-giris').then(() => {
+    void ensureEbistrScript('/ebistr.js?v=20260411-proxy-origin').then(() => {
       const w = window as Window & { ebistrAyarYukle?: () => void };
       const tick = () => {
         if (typeof w.ebistrAyarYukle === 'function') {

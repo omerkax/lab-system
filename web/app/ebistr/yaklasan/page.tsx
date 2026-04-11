@@ -162,7 +162,7 @@ export default function Page() {
   useEffect(() => {
     const el = shellRef.current;
     if (el) el.innerHTML = HTML;
-    void ensureEbistrScript('/ebistr.js?v=20260411-design').then(() => {
+    void ensureEbistrScript('/ebistr.js?v=20260411-proxy-origin').then(() => {
       const check = () => {
         if (init.current) return;
         if (typeof (window as any).ebistrInit === 'function') {

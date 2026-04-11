@@ -36,11 +36,26 @@ var ebistrYdList = [];
 var ebistrRenkMap = { 'UYGUNSUZ': 'var(--red)', 'UYARI': '#fbbf24', 'UYGUN': 'var(--grn)', 'HAFTALIK': 'var(--acc)', 'SAPMA_KURTARDI': '#f97316' };
 var ebistrEtiketMap = { 'UYGUNSUZ': 'Uygunsuz', 'UYARI': 'Sapmali', 'UYGUN': 'Uygun', 'HAFTALIK': 'Haftalik', 'SAPMA_KURTARDI': 'Sapma Uyarisi' };
 
+/** localhost/127.0.0.1 tabanı yalnızca sayfa da local iken kullanılabilir (Vercel + Firestore localhost kaydı hatası) */
+function ebistrProxyUrlKayitKullanilabilirMi(stored) {
+    if (stored == null || String(stored).trim() === '') return false;
+    var s = String(stored).trim().toLowerCase();
+    if (typeof window === 'undefined' || !window.location) return true;
+    var h = (window.location.hostname || '').toLowerCase();
+    var sayfaLocal = h === 'localhost' || h === '127.0.0.1';
+    var urlLocal = /(^|\/\/)(localhost|127\.0\.0\.1)([:/]|$)/.test(s);
+    if (urlLocal && !sayfaLocal) return false;
+    return true;
+}
+
 /** layout: window.__LAB_BASE_URL__ (NEXT_PUBLIC_LAB_BASE_URL) veya sayfa origin — netgsm_proxy.php ile aynı kök */
 function _ebistrProxyDefaultBase() {
     if (typeof window === 'undefined') return '';
     var env = window.__LAB_BASE_URL__;
-    if (env != null && String(env).trim() !== '') return String(env).trim().replace(/\/+$/, '');
+    if (env != null && String(env).trim() !== '') {
+        var e = String(env).trim().replace(/\/+$/, '');
+        if (ebistrProxyUrlKayitKullanilabilirMi(e)) return e;
+    }
     return (window.location.origin || '').replace(/\/+$/, '');
 }
 
@@ -1539,7 +1554,9 @@ function _ebistrAyarUygula(kaydedilen) {
     if (smtpU  && kaydedilen.smtpUser)  smtpU.value  = kaydedilen.smtpUser;
     if (smtpP  && kaydedilen.smtpPass)  smtpP.value  = kaydedilen.smtpPass;
     if (smtpC  && kaydedilen.smtpCc)    smtpC.value  = kaydedilen.smtpCc;
-    if (proxyU && kaydedilen.proxyUrl)  proxyU.value = kaydedilen.proxyUrl;
+    if (proxyU && kaydedilen.proxyUrl && ebistrProxyUrlKayitKullanilabilirMi(kaydedilen.proxyUrl)) {
+        proxyU.value = kaydedilen.proxyUrl;
+    }
     if (mailK  && kaydedilen.mailKosul) mailK.value  = kaydedilen.mailKosul;
     ebistrYdRender();
     ebistrProxyUrlVarsayilanDoldur();

@@ -383,7 +383,7 @@ function EbistrInner() {
       }
     };
 
-    void ensureEbistrScript('/ebistr.js?v=20260411-ebis-giris').then(() => {
+    void ensureEbistrScript('/ebistr.js?v=20260411-proxy-origin').then(() => {
       runInit();
     });
   }, [params]);

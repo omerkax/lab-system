@@ -124,7 +124,7 @@ export default function KurlemePage() {
     const el = shellRef.current;
     if (el) el.innerHTML = HTML;
     void (async () => {
-      await ensureEbistrScript('/ebistr.js?v=20260411-design');
+      await ensureEbistrScript('/ebistr.js?v=20260411-proxy-origin');
       await loadScriptOnce('/kurleme-init.js?v=20260411-kur-yibfsiz', 'lab-kurleme-init-js');
       const tryInit = () => {
         if (typeof (window as any)._kurlemeInit === 'function' &&
