@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { waitUntil } from '@vercel/functions';
-import { getStatus, getCache, syncTelemetriOnly } from '@/lib/ebistr-engine';
+import { getStatus, getCache, syncTelemetriOnly, hydrateEbistrTokenFromFirestore } from '@/lib/ebistr-engine';
 
 function scheduleTelemetriSync(work: Promise<void>) {
   try {
@@ -13,6 +13,7 @@ function scheduleTelemetriSync(work: Promise<void>) {
 // /api/telemetri → local engine'den durum döner (Railway gerekmez)
 export async function GET() {
   try {
+    await hydrateEbistrTokenFromFirestore();
     const status = getStatus();
     const cache = getCache();
     const now = Date.now();

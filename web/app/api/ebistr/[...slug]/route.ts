@@ -4,6 +4,7 @@ import {
   addToken, clearTokens, getStatus, getCache, getTokens,
   performSync, normalizeNumune, syncTelemetriOnly, mergeMailDurum,
   hydrateEbistrFallbackFromJsonIfEmpty,
+  hydrateEbistrTokenFromFirestore,
 } from '@/lib/ebistr-engine';
 
 /** Vercel: yanıt döndükten sonra da performSync tamamlanabilsin (aksi halde 202 sonsuz döngü) */
@@ -34,6 +35,7 @@ export const maxDuration = 300;
 // ── Slug bazlı routing ─────────────────────────────────────────────
 export async function GET(req: NextRequest, { params }: { params: Promise<{ slug?: string[] }> }) {
   hydrateEbistrFallbackFromJsonIfEmpty();
+  await hydrateEbistrTokenFromFirestore();
   const { slug = [] } = await params;
   const endpoint = slug.join('/');
 
@@ -104,6 +106,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ slug?: string[] }> }) {
   hydrateEbistrFallbackFromJsonIfEmpty();
+  await hydrateEbistrTokenFromFirestore();
   const { slug = [] } = await params;
   const endpoint = slug.join('/');
   let body: any = {};

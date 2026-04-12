@@ -71,6 +71,11 @@ async function loadTokenFromFirestore(): Promise<boolean> {
   } catch { return false; }
 }
 
+/** Soğuk Vercel örneğinde /tmp boşken Ayar → setToken ile Firestore'a yazılmış JWT'yi belleğe alır (telemetri / api hemen kullanabilsin). */
+export async function hydrateEbistrTokenFromFirestore(): Promise<boolean> {
+  return loadTokenFromFirestore();
+}
+
 /** Yerel: web/data. Vercel serverless: /var/task salt okunur → /tmp (yine kalıcı değil, aynı instance + waitUntil için yeterli). */
 export function getEbistrDataDir(): string {
   const override = (process.env.EBISTR_DATA_DIR || '').trim();
@@ -686,13 +691,10 @@ export function initEbistrEngine() {
   loadToken();
   loadCache();
 
-  // Yerel token yoksa Firestore'dan yükle, sonra sync et
-  setTimeout(async () => {
-    try {
-      await loadTokenFromFirestore();
-    } catch { /* ignore */ }
-    await performSync().catch(console.error);
-  }, 5_000);
+  // Firestore’daki token’ı gecikmeden yükle (5 sn beklemeden gelen /api/telemetri vb. için)
+  void hydrateEbistrTokenFromFirestore().catch(() => {});
+
+  setTimeout(() => performSync().catch(console.error), 5_000);
 
   // Her 5 dakikada bir sync
   setInterval(() => performSync().catch(console.error), 5 * 60 * 1000);

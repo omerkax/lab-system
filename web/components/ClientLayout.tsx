@@ -5,6 +5,7 @@ import PersonelAccessBridge from './PersonelAccessBridge';
 import Sidebar from './Sidebar';
 import TelemetriAlarmBanner from './TelemetriAlarmBanner';
 import TelemetriPoller from './TelemetriPoller';
+import EbistrBackgroundSync from './EbistrBackgroundSync';
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -24,6 +25,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
       <main className={`main${collapsed ? ' sb-collapsed' : ''}`}>
         <PersonelAccessBridge />
         <LabRouteGuard>
+        <EbistrBackgroundSync />
         <TelemetriAlarmBanner />
         <div className="mob-head" suppressHydrationWarning>
           <button

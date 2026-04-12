@@ -38,10 +38,14 @@ function docPools(doc: Record<string, unknown> | null): Record<TelGecmisPoolKey,
 }
 
 export async function loadTelemetriGecmisFromFirestore(w: Window): Promise<Record<TelGecmisPoolKey, TelGecmisSatir[]>> {
-  const win = w as unknown as { fsGetDoc?: (c: string, id: string) => Promise<Record<string, unknown> | null> };
-  if (typeof win.fsGetDoc !== 'function') return emptyTelGecmis();
+  const win = w as unknown as {
+    fsGetDocQuiet?: (c: string, id: string) => Promise<Record<string, unknown> | null>;
+    fsGetDoc?: (c: string, id: string) => Promise<Record<string, unknown> | null>;
+  };
+  const getDoc = typeof win.fsGetDocQuiet === 'function' ? win.fsGetDocQuiet : win.fsGetDoc;
+  if (typeof getDoc !== 'function') return emptyTelGecmis();
   try {
-    const doc = await win.fsGetDoc(FS_COLLECTION, FS_DOC_ID);
+    const doc = await getDoc(FS_COLLECTION, FS_DOC_ID);
     return docPools(doc);
   } catch {
     return emptyTelGecmis();

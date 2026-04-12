@@ -12,6 +12,75 @@ function fmtD(s) {
     return d || '—';
 }
 
+// ISO tarih string'ini tr-TR locale'ine çevirir; geçersiz/snapshot string → null
+function _safeFormatDate(iso) {
+    if (!iso || String(iso).startsWith('snapshot:')) return null;
+    var d = new Date(iso);
+    return isNaN(d.getTime()) ? null : d.toLocaleString('tr-TR');
+}
+
+// ── YAKLAŞAN KIRIM KALICILIĞI (Firestore) ──────────────────────────
+var _FS_YAKLASAN_COL = 'sys_config';
+var _FS_YAKLASAN_DOC = 'ebistr_yaklasan';
+
+function _yaklasanSaveToFirestore(numuneler) {
+    if (typeof window.fsSet !== 'function') return;
+    window.fsSet(_FS_YAKLASAN_COL, _FS_YAKLASAN_DOC, {
+        numuneler: numuneler,
+        savedAt: new Date().toISOString()
+    }).catch(function() {});
+}
+
+function _yaklasanFilterByFront(numuneler, filtre) {
+    var bugunStr = new Date().toLocaleDateString('en-CA');
+    var result = numuneler;
+    if (!filtre || filtre === 'bugun') {
+        result = numuneler.filter(function(y) { return y.kirimTarihi === bugunStr; });
+    } else if (filtre === 'yarin') {
+        var d = new Date(); d.setDate(d.getDate() + 1);
+        var yarinStr = d.toLocaleDateString('en-CA');
+        result = numuneler.filter(function(y) { return y.kirimTarihi === yarinStr; });
+    } else if (filtre === 'bu_hafta') {
+        var bugunMs = new Date(bugunStr + 'T00:00:00').getTime();
+        result = numuneler.filter(function(y) {
+            var ms = new Date(y.kirimTarihi + 'T00:00:00').getTime();
+            var fark = Math.round((ms - bugunMs) / 86400000);
+            return fark >= 0 && fark <= 7;
+        });
+    } else if (filtre && filtre.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        result = numuneler.filter(function(y) { return y.kirimTarihi === filtre; });
+    }
+    return result;
+}
+
+function _yaklasanLoadFromFirestore(filtre) {
+    if (typeof window.fsGetDoc !== 'function') {
+        var pb = document.getElementById('ebistr-yaklasan-proxy-bos');
+        if (pb) pb.style.display = 'block';
+        return;
+    }
+    window.fsGetDoc(_FS_YAKLASAN_COL, _FS_YAKLASAN_DOC).then(function(doc) {
+        if (!doc || !Array.isArray(doc.numuneler) || !doc.numuneler.length) {
+            var pb = document.getElementById('ebistr-yaklasan-proxy-bos');
+            if (pb) pb.style.display = 'block';
+            return;
+        }
+        ebistrYaklasanData = _yaklasanFilterByFront(doc.numuneler, filtre);
+        ebistrYaklasanMetrikler();
+        ebistrYaklasanRender();
+        var syncLbl = document.getElementById('ebistr-yaklasan-sync-lbl');
+        if (syncLbl) {
+            var t = _safeFormatDate(doc.savedAt);
+            syncLbl.textContent = 'Önbellek: ' + (t || '—');
+        }
+        var proxyLbl = document.getElementById('ebistr-yaklasan-proxy-lbl');
+        if (proxyLbl) { proxyLbl.textContent = 'Önbellekten'; proxyLbl.style.color = 'var(--amb)'; }
+    }).catch(function() {
+        var pb = document.getElementById('ebistr-yaklasan-proxy-bos');
+        if (pb) pb.style.display = 'block';
+    });
+}
+
 // ── FIRESTORE WRAPPERS ─────────────────────────────────────────────
 // index.html ana bloğundaki fsSet/fsGetDoc fonksiyonlarına delege eder
 function fbSave(collection, docId, data) {
@@ -372,7 +441,7 @@ function _ebistrSilentRefresh() {
         ebistrNumuneler = d.numuneler;
         _ebistrCanliBasariliPanel();
         _ebistrMailDurumSunucudan(d);
-        var syncTime = d.lastSync ? new Date(d.lastSync).toLocaleString('tr-TR') : new Date().toLocaleString('tr-TR');
+        var syncTime = _safeFormatDate(d.lastSync) || new Date().toLocaleString('tr-TR');
         var info = document.getElementById('ebistr-csv-info');
         var badgeOk = document.getElementById('ebistr-csv-info-badge');
         var dotOk = document.getElementById('ebistr-csv-status-dot');
@@ -537,7 +606,7 @@ function ebistrVeriGuncelle() {
         ebistrNumuneler = d.numuneler;
         _ebistrCanliBasariliPanel();
         _ebistrMailDurumSunucudan(d);
-        var syncTime = d.lastSync ? new Date(d.lastSync).toLocaleString('tr-TR') : '—';
+        var syncTime = _safeFormatDate(d.lastSync) || '—';
         var badge = document.getElementById('ebistr-csv-info-badge');
         if (badge) badge.className = 'ebistr-status-badge ready';
         if (dot) dot.style.background = 'var(--grn)';
@@ -608,7 +677,7 @@ function _ebistrFetch(bas, bit) {
         ebistrNumuneler = d.numuneler;
         _ebistrCanliBasariliPanel();
         _ebistrMailDurumSunucudan(d);
-        var syncTime = d.lastSync ? new Date(d.lastSync).toLocaleString('tr-TR') : '—';
+        var syncTime = _safeFormatDate(d.lastSync) || '—';
         if (badge) badge.className = 'ebistr-status-badge ready';
         if (dot) dot.style.background = 'var(--grn)';
         var syncLbl = document.getElementById('ebistr-yaklasan-sync-lbl');
@@ -2286,26 +2355,36 @@ function ebistrYaklasanFiltre(filtre) {
         .then(function(r) { return r.json(); })
         .then(function(d) {
             if (yukleniyor) yukleniyor.style.display = 'none';
-            if (!d.ok) { if (proxyBos) proxyBos.style.display = 'block'; return; }
-            ebistrYaklasanData = d.numuneler || [];
-            // bu_hafta için sadece +0..+7 gün içindekiler
+            if (!d.ok) {
+                _yaklasanLoadFromFirestore(filtre);
+                return;
+            }
+            var ham = d.numuneler || [];
+            // Tüm ham veriyi Firestore'a kaydet (filtresiz — sonraki fallback için)
+            if (ham.length) _yaklasanSaveToFirestore(ham);
+            // Sayfa filtresi uygula
+            ebistrYaklasanData = ham;
             if (filtre === 'bu_hafta') {
-                ebistrYaklasanData = ebistrYaklasanData.filter(function(y) {
+                ebistrYaklasanData = ham.filter(function(y) {
                     return y.farkGun >= 0 && y.farkGun <= 7;
                 });
             }
-            // Belirli tarih filtresi (YYYY-MM-DD formatında)
             if (filtre && filtre.match(/^\d{4}-\d{2}-\d{2}$/)) {
-                ebistrYaklasanData = ebistrYaklasanData.filter(function(y) {
+                ebistrYaklasanData = ham.filter(function(y) {
                     return y.kirimTarihi === filtre;
                 });
+            }
+            var syncLbl = document.getElementById('ebistr-yaklasan-sync-lbl');
+            if (syncLbl) {
+                var t = _safeFormatDate(d.lastSync);
+                syncLbl.textContent = 'Son Güncelleme: ' + (t || new Date().toLocaleString('tr-TR'));
             }
             ebistrYaklasanMetrikler();
             ebistrYaklasanRender();
         })
         .catch(function() {
             if (yukleniyor) yukleniyor.style.display = 'none';
-            if (proxyBos)   proxyBos.style.display = 'block';
+            _yaklasanLoadFromFirestore(filtre);
         });
 }
 

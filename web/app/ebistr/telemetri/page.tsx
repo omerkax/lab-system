@@ -264,7 +264,7 @@ export default function TelemetriPage() {
       setHata(null);
       if (!loggedIn) {
         setTelemetryUyari(
-          'Bu sunucu örneğinde EBİSTR JWT yok; telemetri çekilmez. Vercel’de EBISTR_SERVER_TOKEN veya lab üzerinden /api/ebistr/setToken ile token gönderin.'
+          'Sunucuda EBİSTR JWT yok (Firestore sys_config/ebistr_token veya ortam değişkeni). EBİSTR Ayar sayfasından tokenı kaydedin, eklenti/setToken kullanın veya Vercel’de EBISTR_SERVER_TOKEN tanımlayın; ardından sayfayı yenileyin.'
         );
       } else if (!items.length) {
         setTelemetryUyari(

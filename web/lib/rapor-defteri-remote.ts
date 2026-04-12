@@ -7,10 +7,14 @@ export async function loadRaporDefteriFromFirestore(w: Window): Promise<{
   rows: unknown[];
   map: Record<string, unknown>;
 } | null> {
-  const win = w as unknown as { fsGetDoc?: (c: string, id: string) => Promise<Record<string, unknown> | null> };
-  if (typeof win.fsGetDoc !== 'function') return null;
+  const win = w as unknown as {
+    fsGetDocQuiet?: (c: string, id: string) => Promise<Record<string, unknown> | null>;
+    fsGetDoc?: (c: string, id: string) => Promise<Record<string, unknown> | null>;
+  };
+  const getDoc = typeof win.fsGetDocQuiet === 'function' ? win.fsGetDocQuiet : win.fsGetDoc;
+  if (typeof getDoc !== 'function') return null;
   try {
-    const doc = await win.fsGetDoc(FS_COLLECTION, FS_DOC_ID);
+    const doc = await getDoc(FS_COLLECTION, FS_DOC_ID);
     if (!doc || !Array.isArray(doc.rows) || !doc.rows.length) return null;
     return {
       rows: doc.rows,

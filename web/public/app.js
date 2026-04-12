@@ -5830,6 +5830,11 @@
                 // XML Yanıtını parse et: <result><code>00</code><balance>50,00</balance></result>
                 var parser = new DOMParser();
                 var xmlDoc = parser.parseFromString(txt, "text/xml");
+                if (xmlDoc.getElementsByTagName("parsererror").length) {
+                    console.warn('NetGSM: XML ayrıştırılamadı', txt.slice(0, 200));
+                    if (val) { val.textContent = 'Bakiye'; val.removeAttribute('title'); }
+                    return;
+                }
 
                 // stip=1 veya 3 formatı için (Adet)
                 var results = xmlDoc.getElementsByTagName("result");
@@ -5845,20 +5850,43 @@
 
                 // Eğer eski stip=2 formatı gelirse (Doğrudan <balance>)
                 var oldBal = (xmlDoc.getElementsByTagName("balance")[0] || {}).textContent;
-                var oldCode = (xmlDoc.getElementsByTagName("code")[0] || {}).textContent;
+                var oldCode = ((xmlDoc.getElementsByTagName("code")[0] || {}).textContent || "").trim();
+                if (!oldCode) {
+                    var mc = txt.match(/<code>\s*([^<]+?)\s*<\/code>/i);
+                    if (mc) oldCode = String(mc[1] || '').trim();
+                }
 
                 if (adetSms) {
-                    if (val) val.textContent = adetSms + ' Adet';
+                    if (val) { val.textContent = adetSms + ' Adet'; val.removeAttribute('title'); }
                     if (balEl) balEl.style.display = 'block';
                 } else if (oldCode === '00' && oldBal) {
-                    if (val) val.textContent = oldBal + ' TL';
+                    if (val) { val.textContent = oldBal + ' TL'; val.removeAttribute('title'); }
                     if (balEl) balEl.style.display = 'block';
                 } else if (tlSms) {
-                    if (val) val.textContent = tlSms + ' TL';
+                    if (val) { val.textContent = tlSms + ' TL'; val.removeAttribute('title'); }
+                    if (balEl) balEl.style.display = 'block';
+                } else if (oldCode && oldCode !== '00') {
+                    var netgsmErrMsg = {
+                        '20': 'NetGSM 20: Mesaj metni veya uzunluk hatası (bakiye sorgusu dışı).',
+                        '30': 'NetGSM 30: Kullanıcı/şifre hatalı, API kapalı veya IP kısıtı. Panelde API açın; IP kısıtı varsa isteğin çıktığı sunucu IP’sini (ör. Vercel) NetGSM’e tanımlayın.',
+                        '40': 'NetGSM 40: Başlık (gönderen adı) tanımlı değil.',
+                        '50': 'NetGSM 50: IYS kısıtı.',
+                        '51': 'NetGSM 51: IYS marka bilgisi yok.',
+                        '60': 'NetGSM 60: JobID bulunamadı.',
+                        '70': 'NetGSM 70: Geçersiz parametre.',
+                        '80': 'NetGSM 80: Gönderim limiti.',
+                        '85': 'NetGSM 85: Yinelenen gönderim limiti.'
+                    };
+                    var human = netgsmErrMsg[oldCode] || ('NetGSM hata kodu: ' + oldCode);
+                    console.warn(human);
+                    if (val) {
+                        val.textContent = 'NetGSM · ' + oldCode;
+                        val.setAttribute('title', human);
+                    }
                     if (balEl) balEl.style.display = 'block';
                 } else {
-                    console.warn('NetGSM Parse Error:', txt);
-                    if (val) val.textContent = 'Bakiye';
+                    console.warn('NetGSM: Beklenmeyen bakiye yanıtı', txt.slice(0, 300));
+                    if (val) { val.textContent = 'Bakiye'; val.removeAttribute('title'); }
                 }
             })
             .catch(function (err) {

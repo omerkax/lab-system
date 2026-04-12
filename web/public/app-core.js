@@ -108,6 +108,49 @@ function fsGetDoc(collection, docId, cb) {
     });
 }
 
+/** İsteğe bağlı doküman: yoksa 404 yerine runQuery → 200 (konsol / ağ sekmesi kirlenmez) */
+function fsGetDocQuiet(collection, docId, cb) {
+    if (!docId) return fsGetDoc(collection, docId, cb);
+    var refPath = 'projects/' + FB_CONFIG.projectId + '/databases/(default)/documents/' + collection + '/' + docId;
+    var runUrl = 'https://firestore.googleapis.com/v1/projects/' + FB_CONFIG.projectId + '/databases/(default)/documents:runQuery?key=' + DB_KEY;
+    return _fsEnqueue(function () {
+        return fetch(runUrl, {
+            method: 'POST',
+            headers: fsHeaders(),
+            body: JSON.stringify({
+                structuredQuery: {
+                    from: [{ collectionId: collection }],
+                    where: {
+                        fieldFilter: {
+                            field: { fieldPath: '__name__' },
+                            op: 'EQUAL',
+                            value: { referenceValue: refPath }
+                        }
+                    },
+                    limit: 1
+                }
+            })
+        })
+            .then(function (r) {
+                if (!r.ok) {
+                    _fsNotifyAccessDenied(r, 'runQuery', collection + '/' + docId);
+                    console.warn('fsGetDocQuiet hata ' + r.status);
+                    return null;
+                }
+                return r.json();
+            })
+            .then(function (rows) {
+                var result = null;
+                if (Array.isArray(rows) && rows[0] && rows[0].document && rows[0].document.fields) {
+                    result = fsDoc2obj(rows[0].document);
+                }
+                if (cb) cb(result);
+                return result;
+            })
+            .catch(function (err) { console.error('fsGetDocQuiet network hata:', err); if (cb) cb(null); return null; });
+    });
+}
+
 function fsGet(collection, pageToken, accumulated, _attempt) {
     if (!accumulated) accumulated = [];
     if (_attempt === undefined || _attempt === null) _attempt = 0;
