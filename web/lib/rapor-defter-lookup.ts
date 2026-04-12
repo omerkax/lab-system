@@ -84,6 +84,22 @@ export function mergeRaporMaps(persisted: Record<string, unknown> | null | undef
   return { ...base, ...fromRows } as Record<string, Record<string, string>>;
 }
 
+/** Excel / eski içe aktarmadan gelen tamamen boş veya tire-only satırları atar. */
+export function filterRaporStorageRows(raw: unknown[]): unknown[] {
+  const isEmpty = (v: unknown) => {
+    const s = String(v ?? '').trim();
+    return !s || /^[-—–]+$/.test(s);
+  };
+  const isAllEmpty = (r: Record<string, unknown>) => Object.values(r).every(isEmpty);
+  const hasContent = (r: Record<string, unknown>) =>
+    !!(r.yibf || r.sahip || r.yd || r.kod || r.alinTarih || r.sinif || r.cins || r.brn7 || r.brn28 || r.tip);
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((r) => {
+    const row = r as Record<string, unknown>;
+    return !isAllEmpty(row) && hasContent(row);
+  });
+}
+
 export function createRaporDefterYibfLookup(
   rows: unknown[],
   persistedMap: Record<string, unknown> | null | undefined
