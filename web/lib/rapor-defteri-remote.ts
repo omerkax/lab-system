@@ -1,7 +1,54 @@
 import { filterRaporStorageRows, mergeRaporMaps } from '@/lib/rapor-defter-lookup';
+import { normalizeYibfLookupKey } from '@/lib/yibf-utils';
 
 const FS_COLLECTION = 'sys_config';
 const FS_DOC_ID = 'rapor_defteri';
+
+/** Firestore dokümanı ~1MB sınırı; tam satırlar büyükse yalnızca map yazılır. */
+export const RAPOR_FIRESTORE_ROWS_JSON_MAX = 650_000;
+
+/** Kalıcı map’ten (YİBF → bilgi) minimal rapor satırları — GET /api/rapor boşken yedek. */
+export function synthesizeRaporRowsFromPersistedMap(map: Record<string, unknown>): unknown[] {
+  const out: unknown[] = [];
+  const seenNorm = new Set<string>();
+  for (const [mapKey, val] of Object.entries(map)) {
+    if (!val || typeof val !== 'object') continue;
+    const m = val as Record<string, unknown>;
+    const yibf = String(m.yibf ?? mapKey ?? '')
+      .trim()
+      .replace(/^0+/, '');
+    if (!yibf) continue;
+    const norm = normalizeYibfLookupKey(yibf);
+    if (!norm || seenNorm.has(norm)) continue;
+    seenNorm.add(norm);
+    out.push({
+      yibf,
+      sahip: String(m.yapiSahibi ?? m.sahip ?? ''),
+      yd: String(m.yapiDenetim ?? m.yd ?? ''),
+      talepEden: String(m.talepEden ?? ''),
+      bolum: String(m.yapiBolumu ?? m.bolum ?? ''),
+      blok: String(m.blok ?? ''),
+      beton: String(m.betonFirmasi ?? m.beton ?? ''),
+      adres: String(m.adres ?? ''),
+      pafta: String(m.pafta ?? ''),
+      ada: String(m.ada ?? ''),
+      parsel: String(m.parsel ?? ''),
+      ruhsatNo: String(m.ruhsatNo ?? ''),
+      idare: String(m.idare ?? ''),
+      muteahhit: String(m.muteahhit ?? m.contractor ?? ''),
+      tip: String(m.tip ?? ''),
+      yil: String(m.yil ?? ''),
+      kod: String(m.kod ?? ''),
+      alinTarih: String(m.alinTarih ?? ''),
+      labTarih: String(m.labTarih ?? ''),
+      fiyat: String(m.fiyat ?? ''),
+      sinif: String(m.sinif ?? ''),
+      cins: String(m.cins ?? ''),
+      lab: String(m.lab ?? ''),
+    });
+  }
+  return out;
+}
 
 export async function loadRaporDefteriFromFirestore(w: Window): Promise<{
   rows: unknown[];
@@ -16,8 +63,11 @@ export async function loadRaporDefteriFromFirestore(w: Window): Promise<{
   try {
     const doc = await getDoc(FS_COLLECTION, FS_DOC_ID);
     if (!doc) return null;
-    const rows = Array.isArray(doc.rows) ? doc.rows : [];
+    let rows = Array.isArray(doc.rows) ? [...doc.rows] : [];
     const map = doc.map && typeof doc.map === 'object' ? (doc.map as Record<string, unknown>) : {};
+    if (!rows.length && Object.keys(map).length) {
+      rows = synthesizeRaporRowsFromPersistedMap(map) as unknown[];
+    }
     if (!rows.length && !Object.keys(map).length) return null;
     return { rows, map };
   } catch {
@@ -33,11 +83,25 @@ export async function persistRaporDefteriToFirestore(
   const win = w as unknown as { fsSet?: (c: string, id: string, o: Record<string, unknown>) => Promise<unknown> };
   if (typeof win.fsSet !== 'function') return false;
   try {
-    await win.fsSet(FS_COLLECTION, FS_DOC_ID, {
-      rows,
+    let rowsToStore: unknown[] = rows;
+    let rowsOmitted = false;
+    try {
+      const s = JSON.stringify(rows);
+      if (s.length > RAPOR_FIRESTORE_ROWS_JSON_MAX) {
+        rowsToStore = [];
+        rowsOmitted = true;
+      }
+    } catch {
+      rowsToStore = [];
+      rowsOmitted = true;
+    }
+    const payload: Record<string, unknown> = {
       map,
       updatedAt: new Date().toISOString(),
-    });
+      rows: rowsToStore,
+    };
+    if (rowsOmitted) payload.rowsOmitted = true;
+    await win.fsSet(FS_COLLECTION, FS_DOC_ID, payload);
     return true;
   } catch (e) {
     console.warn('[rapor-defteri] Firestore kayıt:', e);

@@ -201,15 +201,19 @@
                     return r.json();
                 })
                 .then(function (data) {
+                    var result = null;
                     if (data && data.fields) {
-                        if (cb) cb(fsDoc2obj(data));
+                        result = fsDoc2obj(data);
+                        if (cb) cb(result);
                     } else {
                         if (cb) cb(null);
                     }
+                    return result;
                 })
                 .catch(function (err) {
                     console.error('fsGetDoc network hata:', err);
                     if (cb) cb(null);
+                    return null;
                 });
         });
     }
@@ -3334,7 +3338,7 @@
         toast(allData.length + ' kayıt yüklendi', 'ok');
         // Global lookup güncellendiğini bildir
         window.raporDefterYibfBilgi = raporDefterYibfBilgi;
-        // YİBF → mal sahibi haritasını JSON cache'e kaydet
+        // Sunucu JSON dosyasına tam satırları kaydet + Firestore yedek (map; satır ~1MB altı)
         try {
             var yibfMap = {};
             allData.forEach(function(r) {
@@ -3348,29 +3352,41 @@
                     };
                 }
             });
+            var RAPOR_FS_ROWS_MAX = 650000;
+            // Primary: /api/rapor JSON dosyası — tam satırlar + map (aynı Vercel instance’ında hızlı)
             fetch('/api/rapor', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ data: yibfMap })
+                body: JSON.stringify({ rows: allData, map: yibfMap })
             }).catch(function() {});
-            // Firestore delta merge — sadece yeni YİBF'leri ekle, mevcutları koru
+            // Secondary: Firestore — yeni YİBF map’i baskın; isteğe bağlı tam satırlar (doküman boyutu sınırı)
             if (typeof window.fsSet === 'function' && typeof window.fsGetDoc === 'function') {
                 window.fsGetDoc('sys_config', 'rapor_defteri').then(function(existing) {
                     var existingMap = (existing && existing.map && typeof existing.map === 'object') ? existing.map : {};
-                    // Mevcut YİBF'leri koru, sadece eksik olanları ekle
-                    var mergedMap = Object.assign({}, yibfMap, existingMap);
-                    return window.fsSet('sys_config', 'rapor_defteri', {
-                        rows: [],
+                    var mergedMap = Object.assign({}, existingMap, yibfMap);
+                    var payload = {
                         map: mergedMap,
                         updatedAt: new Date().toISOString()
-                    });
+                    };
+                    try {
+                        var rowsJson = JSON.stringify(allData);
+                        if (rowsJson.length <= RAPOR_FS_ROWS_MAX) {
+                            payload.rows = allData;
+                        } else {
+                            payload.rows = [];
+                            payload.rowsOmitted = true;
+                        }
+                    } catch (ex) {
+                        payload.rows = [];
+                        payload.rowsOmitted = true;
+                    }
+                    return window.fsSet('sys_config', 'rapor_defteri', payload);
                 }).catch(function() {
-                    // Mevcut veri okunamazsa sadece yeni map'i kaydet
-                    window.fsSet('sys_config', 'rapor_defteri', {
-                        rows: [],
-                        map: yibfMap,
-                        updatedAt: new Date().toISOString()
-                    }).catch(function() {});
+                    var payload = { map: yibfMap, updatedAt: new Date().toISOString(), rows: [] };
+                    try {
+                        if (JSON.stringify(allData).length <= RAPOR_FS_ROWS_MAX) payload.rows = allData;
+                    } catch (ex2) {}
+                    window.fsSet('sys_config', 'rapor_defteri', payload).catch(function() {});
                 });
             }
         } catch(e) {}
@@ -3406,7 +3422,30 @@
             }
             return;
         }
-        // localStorage boşsa Firestore'dan yükle (map → minimal satır listesi)
+        // 2. Katman: sunucu JSON (/api/rapor) — farklı Vercel instance’ında /tmp boş olsa bile dosya dolu olabilir
+        fetch('/api/rapor', { cache: 'no-store' })
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (Array.isArray(d.rows) && d.rows.length) {
+                    allData = d.rows;
+                    try {
+                        lsSet('alibey_rapor', allData);
+                        lsSet('alibey_rapor_meta', {
+                            name: '(Sunucu)',
+                            count: allData.length,
+                            date: new Date().toLocaleDateString('tr-TR')
+                        });
+                    } catch (ex) {}
+                    afterRaporLoad('(Sunucu önbelleği)');
+                    return;
+                }
+                // 3. Katman: Firestore (map veya küçükse tam rows)
+                _loadRaporFromFirestoreMap();
+            })
+            .catch(function() { _loadRaporFromFirestoreMap(); });
+    }
+
+    function _loadRaporFromFirestoreMap() {
         if (typeof window.fsGetDoc !== 'function') return;
         window.fsGetDoc('sys_config', 'rapor_defteri').then(function(doc) {
             if (!doc) return;
@@ -3415,22 +3454,39 @@
             if (fsRows) {
                 allData = fsRows;
             } else if (fsMap) {
-                // map'ten minimal satır kur — owner listesi için yeterli
-                allData = Object.keys(fsMap).map(function(yibf) {
-                    var m = fsMap[yibf] || {};
-                    return {
+                var seen = {};
+                allData = [];
+                Object.keys(fsMap).forEach(function(yibfKey) {
+                    var m = fsMap[yibfKey] || {};
+                    if (!m || typeof m !== 'object') return;
+                    var yibf = String(m.yibf || yibfKey || '').trim().replace(/^0+/, '') || String(yibfKey || '').trim();
+                    if (!yibf) return;
+                    var dedupe = yibf.replace(/\D/g, '').replace(/^0+/, '') || yibf;
+                    if (seen[dedupe]) return;
+                    seen[dedupe] = 1;
+                    allData.push({
                         'YİBF': yibf,
-                        'YAPI SAHİBİ':       m.yapiSahibi || '',
-                        'DENEYİ TALEP EDEN': m.yapiDenetim || '',
-                        'BETON':             m.betonFirmasi || '',
-                        'YAPI BÖLÜMÜ':       m.yapiBolumu || '',
-                        'BLOK':              m.blok || '',
-                        'TİP':               m.tip || '',
-                        'NMN.ALINIŞ TARİHİ': m.alinTarih || ''
-                    };
+                        'YAPI SAHİBİ':       String(m.yapiSahibi != null && m.yapiSahibi !== '' ? m.yapiSahibi : (m.sahip || '')),
+                        'DENEYİ TALEP EDEN': String(m.yapiDenetim || m.yd || ''),
+                        'BETON':             String(m.betonFirmasi || m.beton || ''),
+                        'YAPI BÖLÜMÜ':       String(m.yapiBolumu || m.bolum || ''),
+                        'BLOK':              String(m.blok || ''),
+                        'TİP':               String(m.tip || ''),
+                        'NMN.ALINIŞ TARİHİ': String(m.alinTarih || '')
+                    });
                 });
             }
-            if (allData.length) afterRaporLoad('(Firestore önbelleği)');
+            if (allData.length) {
+                try {
+                    lsSet('alibey_rapor', allData);
+                    lsSet('alibey_rapor_meta', {
+                        name: '(Firestore)',
+                        count: allData.length,
+                        date: new Date().toLocaleDateString('tr-TR')
+                    });
+                } catch (ex) {}
+                afterRaporLoad('(Firestore önbelleği)');
+            }
         }).catch(function() {});
     }
 
