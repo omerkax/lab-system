@@ -1,8 +1,12 @@
 /**
  * ebistr.js — EBİSTR Beton Analiz Modülü
- * Alibey Laboratuvar ERP — index.html'den ayrıştırıldı
+ * Alibey Lab ERP — index.html'den ayrıştırıldı
  * Bağımlılıklar: sw(), lsGet(), lsSet(), toast(), logAction(), fbSave(), fbPull()
  */
+
+// Resmî ünvan (web/lib/lab-brand.ts ile aynı metin — senkron tutun)
+var _EBISTR_LAB_LEGAL = 'Alibey Beton Çelik Analiz Kentsel Dönüşüm Laboratuvarı San. Tic. Ltd. Şti.';
+var _EBISTR_LAB_LEGAL_MAIL_HDR = 'Alibey Beton Çelik Analiz Kentsel Dönüşüm<br>Laboratuvarı San. Tic. Ltd. Şti.';
 
 // Tarih formatlayıcı: yyyy-mm-dd → dd.mm.yyyy (ISO veya kısa string)
 function fmtD(s) {
@@ -1772,7 +1776,7 @@ function ebistrMailHtml(a, fromName) {
 
         // ── FOOTER ──
         '<tr><td style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:14px 24px;text-align:center">' +
-            '<div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:3px">ALIBEY LABORATUVAR ERP</div>' +
+            '<div style="font-size:11px;font-weight:600;color:#475569;margin-bottom:3px;line-height:1.35">' + _EBISTR_LAB_LEGAL + '</div>' +
             '<div style="font-size:11px;color:#94a3b8">Gönderen: ' + (fromName || 'Sistem') + ' — Otomatik bildirim, lütfen yanıtlamayın</div>' +
         '</td></tr>' +
 
@@ -2232,7 +2236,7 @@ function _ebistrTopluMailHtml(raporlar, fromUser, firmaAd) {
         '<tr><td>' +
             '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#1e3a5f">' +
             '<tr><td style="padding:22px 28px">' +
-                '<div style="font-size:21px;font-weight:800;color:#ffffff;margin-bottom:4px">Alibey Beton Kontrol Laboratuvar</div>' +
+                '<div style="font-size:15px;font-weight:800;color:#ffffff;margin-bottom:4px;line-height:1.25">' + _EBISTR_LAB_LEGAL_MAIL_HDR + '</div>' +
                 '<div style="font-size:13px;color:#93c5fd">Beton Uygunluk Raporu — ' + tarih + '</div>' +
             '</td>' +
             '<td style="padding:22px 28px;text-align:right;vertical-align:top">' +
@@ -2287,7 +2291,7 @@ function _ebistrTopluMailHtml(raporlar, fromUser, firmaAd) {
 
         // ── FOOTER ──
         '<tr><td style="padding:16px 0;text-align:center;border-top:1px solid #e2e8f0">' +
-            '<div style="font-size:12px;font-weight:600;color:#64748b;margin-bottom:3px">ALIBEY BETON KONTROL LABORATUVAR ERP</div>' +
+            '<div style="font-size:11px;font-weight:600;color:#64748b;margin-bottom:3px;line-height:1.35">' + _EBISTR_LAB_LEGAL + '</div>' +
             '<div style="font-size:11px;color:#94a3b8">Gönderen: ' + (fromUser || 'Sistem') + ' — Otomatik bildirim, lütfen yanıtlamayın</div>' +
         '</td></tr>' +
 

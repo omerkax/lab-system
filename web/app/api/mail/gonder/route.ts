@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
+import { LAB_LEGAL_NAME } from '@/lib/lab-brand';
 
 type SmtpBody = {
   user?: string;
@@ -46,10 +47,10 @@ function createTransporter(smtp: SmtpBody) {
 
 function defaultFrom(smtp: SmtpBody, useResend: boolean): string {
   if (useResend) {
-    return '"Alibey Laboratuvar" <alibeybetonlab@alibeylabtx.omerkaya.com.tr>';
+    return `"${LAB_LEGAL_NAME}" <alibeybetonlab@alibeylabtx.omerkaya.com.tr>`;
   }
   const u = String(smtp?.user || '').trim();
-  return `"Alibey Laboratuvar" <${u}>`;
+  return `"${LAB_LEGAL_NAME}" <${u}>`;
 }
 
 export async function POST(req: NextRequest) {

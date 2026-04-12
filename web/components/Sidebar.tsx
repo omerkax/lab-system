@@ -18,6 +18,7 @@ import {
   writeLabSession,
 } from '@/lib/lab-auth';
 import { canManageLabUsers } from '@/lib/lab-password';
+import { LAB_LEGAL_NAME, LAB_SHORT_NAME } from '@/lib/lab-brand';
 
 type NavItem = {
   href?: string;
@@ -301,14 +302,14 @@ export default function Sidebar({ collapsed, setCollapsed, mobOpen, setMobOpen }
       }}
       onMouseLeave={() => setHoverPeek(false)}
     >
-      <div className="sb-brand">
+      <div className="sb-brand" title={LAB_LEGAL_NAME}>
         <div className="sb-logo">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand-logo.png" alt="" width={28} height={28} />
         </div>
         {!narrowNav && (
           <div className="sb-brand-text">
-            <div className="sb-name">Alibey Lab</div>
+            <div className="sb-name">{LAB_SHORT_NAME}</div>
             <div className="sb-subtitle">ERP v2</div>
           </div>
         )}

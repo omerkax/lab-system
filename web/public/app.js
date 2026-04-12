@@ -6331,7 +6331,7 @@
             toast('Önce API bilgilerini kaydedin', 'err'); return;
         }
         var testTel = '05074017765';
-        var testMsg = 'Alibey Laboratuvar SMS Test Mesaji. API baglantisi basarili.';
+        var testMsg = 'Alibey Beton Çelik Analiz Kentsel Dönüşüm Laboratuvarı San. Tic. Ltd. Şti. SMS testi. API bağlantısı başarılı.';
         toast('Test gönderiliyor...', 'info');
         _doSendSms(testTel, testMsg, api, function (ok, msgid) {
             // ok = true: received NetGSM 00/01/02 response

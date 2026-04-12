@@ -2,10 +2,11 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
 import ClientLayout from "@/components/ClientLayout";
+import { LAB_LEGAL_NAME, LAB_PRODUCT_TITLE } from "@/lib/lab-brand";
 
 export const metadata: Metadata = {
-  title: "Alibey Lab ERP",
-  description: "Alibey Beton Çeliği Laboratuvar Yönetim Sistemi",
+  title: LAB_PRODUCT_TITLE,
+  description: LAB_LEGAL_NAME,
   /** app/icon.png (marka) — sekme / PWA apple ikonları */
   icons: {
     icon: [{ url: "/icon.png", type: "image/png" }],

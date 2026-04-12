@@ -12,6 +12,7 @@ import {
   readLabSession,
   roleIsSahaReadOnly,
 } from '@/lib/lab-auth';
+import { LAB_LEGAL_NAME, LAB_SHORT_NAME } from '@/lib/lab-brand';
 
 const SAHA_EXACT = [
   '/giris',
@@ -51,7 +52,9 @@ function LabAuthGate() {
         boxSizing: 'border-box',
       }}
     >
-      <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--tx)' }}>Alibey Lab</div>
+      <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--tx)' }} title={LAB_LEGAL_NAME}>
+        {LAB_SHORT_NAME}
+      </div>
       <div style={{ fontSize: 14, fontWeight: 600 }}>Oturum açmanız gerekiyor</div>
       <p style={{ fontSize: 13, color: 'var(--tx3)', maxWidth: 320, lineHeight: 1.55, margin: 0 }}>
         Giriş sayfasına yönlendiriliyorsunuz. Sayfa açılmazsa aşağıdaki düğmeye dokunun.

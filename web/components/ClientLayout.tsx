@@ -6,6 +6,7 @@ import Sidebar from './Sidebar';
 import TelemetriAlarmBanner from './TelemetriAlarmBanner';
 import TelemetriPoller from './TelemetriPoller';
 import EbistrBackgroundSync from './EbistrBackgroundSync';
+import { LAB_LEGAL_NAME, LAB_SHORT_NAME } from '@/lib/lab-brand';
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -27,7 +28,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         <LabRouteGuard>
         <EbistrBackgroundSync />
         <TelemetriAlarmBanner />
-        <div className="mob-head" suppressHydrationWarning>
+        <div className="mob-head" title={LAB_LEGAL_NAME} suppressHydrationWarning>
           <button
             className="mob-menu-btn"
             suppressHydrationWarning
@@ -37,7 +38,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
               <path fillRule="evenodd" d="M3 5h14a1 1 0 010 2H3a1 1 0 010-2zm0 4h14a1 1 0 010 2H3a1 1 0 010-2zm0 4h14a1 1 0 010 2H3a1 1 0 010-2z" clipRule="evenodd"/>
             </svg>
           </button>
-          <span className="mob-title" suppressHydrationWarning>Alibey Lab</span>
+          <span className="mob-title" suppressHydrationWarning>{LAB_SHORT_NAME}</span>
         </div>
         {children}
         </LabRouteGuard>
