@@ -37,12 +37,28 @@ function docPools(doc: Record<string, unknown> | null): Record<TelGecmisPoolKey,
   };
 }
 
-export async function loadTelemetriGecmisFromFirestore(w: Window): Promise<Record<TelGecmisPoolKey, TelGecmisSatir[]>> {
+function fsGetDocFn(w: Window): ((c: string, id: string) => Promise<Record<string, unknown> | null>) | null {
   const win = w as unknown as {
     fsGetDocQuiet?: (c: string, id: string) => Promise<Record<string, unknown> | null>;
     fsGetDoc?: (c: string, id: string) => Promise<Record<string, unknown> | null>;
   };
-  const getDoc = typeof win.fsGetDocQuiet === 'function' ? win.fsGetDocQuiet : win.fsGetDoc;
+  if (typeof win.fsGetDocQuiet === 'function') return win.fsGetDocQuiet;
+  if (typeof win.fsGetDoc === 'function') return win.fsGetDoc;
+  return null;
+}
+
+/** app-core defer yüklenene kadar kısa bekle — yoksa geçmiş boş sanılıp Firestore üzerine boş yazılabiliyor */
+async function waitForFsGetDoc(w: Window, maxMs = 5000): Promise<void> {
+  const step = 80;
+  let t = 0;
+  while (!fsGetDocFn(w) && t < maxMs) {
+    await new Promise((r) => setTimeout(r, step));
+    t += step;
+  }
+}
+
+export async function loadTelemetriGecmisFromFirestore(w: Window): Promise<Record<TelGecmisPoolKey, TelGecmisSatir[]>> {
+  const getDoc = fsGetDocFn(w);
   if (typeof getDoc !== 'function') return emptyTelGecmis();
   try {
     const doc = await getDoc(FS_COLLECTION, FS_DOC_ID);
@@ -52,16 +68,38 @@ export async function loadTelemetriGecmisFromFirestore(w: Window): Promise<Recor
   }
 }
 
+export type PersistTelemetriGecmisOpts = { /** true: geçmişi tamamen sil (birleştirme yok) */ replaceAll?: boolean };
+
 export async function persistTelemetriGecmisToFirestore(
   w: Window,
-  data: Record<TelGecmisPoolKey, TelGecmisSatir[]>
+  data: Record<TelGecmisPoolKey, TelGecmisSatir[]>,
+  opts?: PersistTelemetriGecmisOpts
 ): Promise<boolean> {
   const win = w as unknown as { fsSet?: (c: string, id: string, o: Record<string, unknown>) => Promise<unknown> };
   if (typeof win.fsSet !== 'function') return false;
   try {
+    let pool1: TelGecmisSatir[];
+    let pool2: TelGecmisSatir[];
+    if (opts?.replaceAll) {
+      pool1 = (data['1'] || []).slice(0, TEL_GECMIS_MAX_PER_POOL);
+      pool2 = (data['2'] || []).slice(0, TEL_GECMIS_MAX_PER_POOL);
+    } else {
+      await waitForFsGetDoc(w, 4000);
+      let base = emptyTelGecmis();
+      try {
+        base = await loadTelemetriGecmisFromFirestore(w);
+      } catch {
+        /* keep empty */
+      }
+      let combined = base;
+      combined = mergePoolReadings(combined, '1', data['1'] || []);
+      combined = mergePoolReadings(combined, '2', data['2'] || []);
+      pool1 = combined['1'].slice(0, TEL_GECMIS_MAX_PER_POOL);
+      pool2 = combined['2'].slice(0, TEL_GECMIS_MAX_PER_POOL);
+    }
     await win.fsSet(FS_COLLECTION, FS_DOC_ID, {
-      pool1: (data['1'] || []).slice(0, TEL_GECMIS_MAX_PER_POOL),
-      pool2: (data['2'] || []).slice(0, TEL_GECMIS_MAX_PER_POOL),
+      pool1,
+      pool2,
       updatedAt: new Date().toISOString(),
     });
     return true;
@@ -73,6 +111,7 @@ export async function persistTelemetriGecmisToFirestore(
 
 /** Firestore boşsa eski localStorage geçmişini taşır (tek sefer). */
 export async function loadTelemetriGecmisWithMigration(w: Window): Promise<Record<TelGecmisPoolKey, TelGecmisSatir[]>> {
+  await waitForFsGetDoc(w, 5000);
   let data = await loadTelemetriGecmisFromFirestore(w);
   if (data['1'].length || data['2'].length) return data;
 
@@ -120,5 +159,5 @@ export async function clearTelemetriGecmisFirestore(w: Window): Promise<boolean>
   } catch {
     /* ignore */
   }
-  return persistTelemetriGecmisToFirestore(w, emptyTelGecmis());
+  return persistTelemetriGecmisToFirestore(w, emptyTelGecmis(), { replaceAll: true });
 }
