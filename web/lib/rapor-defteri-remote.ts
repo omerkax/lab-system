@@ -15,11 +15,11 @@ export async function loadRaporDefteriFromFirestore(w: Window): Promise<{
   if (typeof getDoc !== 'function') return null;
   try {
     const doc = await getDoc(FS_COLLECTION, FS_DOC_ID);
-    if (!doc || !Array.isArray(doc.rows) || !doc.rows.length) return null;
-    return {
-      rows: doc.rows,
-      map: doc.map && typeof doc.map === 'object' ? (doc.map as Record<string, unknown>) : {},
-    };
+    if (!doc) return null;
+    const rows = Array.isArray(doc.rows) ? doc.rows : [];
+    const map = doc.map && typeof doc.map === 'object' ? (doc.map as Record<string, unknown>) : {};
+    if (!rows.length && !Object.keys(map).length) return null;
+    return { rows, map };
   } catch {
     return null;
   }
@@ -66,8 +66,8 @@ export async function fetchRaporDefteriWithFallback(w: Window): Promise<{
 
   if (!raw.length) {
     const fs = await loadRaporDefteriFromFirestore(w);
-    if (fs?.rows?.length) {
-      raw = fs.rows;
+    if (fs) {
+      raw = fs.rows || [];
       sourceMap = fs.map || {};
     }
   }

@@ -3353,6 +3353,14 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ data: yibfMap })
             }).catch(function() {});
+            // Firestore'a da kaydet — Vercel /tmp kaybolsa bile diğer cihazlar görsün
+            if (typeof window.fsSet === 'function') {
+                window.fsSet('sys_config', 'rapor_defteri', {
+                    rows: [],
+                    map: yibfMap,
+                    updatedAt: new Date().toISOString()
+                }).catch(function() {});
+            }
         } catch(e) {}
     }
 
@@ -5894,7 +5902,7 @@
                 } else if (oldCode && oldCode !== '00') {
                     var netgsmErrMsg = {
                         '20': 'NetGSM 20: Mesaj metni veya uzunluk hatası (bakiye sorgusu dışı).',
-                        '30': 'NetGSM 30: Kullanıcı/şifre, API kapalı veya IP kısıtı. IP için: alan adı satıcısının gösterdiği “site IP” / A kaydı genelde YANLIŞTIR — konsoldaki [NetGSM] çıkış IP satırına bakın veya tarayıcıda …/api/egress-ip açın; NetGSM’e o adresi yazın. Ayrıca panelde SMS API açık mı kontrol edin.',
+                        '30': 'NetGSM 30: Kullanıcı/şifre, API kapalı veya IP kısıtı. Vercel IP’si sürekli değişir; kalıcı çözüm: (1) NetGSM’de IP kısıtını kapatın veya (2) sabit IP’li sunucuda netgsm_proxy.php çalıştırıp Vercel’e NETGSM_RELAY_URL ile o adresi verin; NetGSM whitelist’e yalnızca o sunucunun çıkış IPv4’ünü yazın. Yanıt başlığı X-Lab-Netgsm-Via: relay ise köprü devrede, direct ise hâlâ Vercel’den gidiyor demektir. Teşhis: …/api/egress-ip',
                         '40': 'NetGSM 40: Başlık (gönderen adı) tanımlı değil.',
                         '50': 'NetGSM 50: IYS kısıtı.',
                         '51': 'NetGSM 51: IYS marka bilgisi yok.',
