@@ -63,7 +63,7 @@ export default async function RootLayout({
         />
         <script src="/xlsx.js?v=20260410-1" defer />
         <script src="/app-core.js?v=20260415-fsgetdoc-quiet" defer />
-        <script src="/app.js?v=20260415-fsgetdoc-quiet" defer />
+        <script src="/app.js?v=20260416-netgsm-egress-hint" defer />
       </head>
       <body>
         <ClientLayout>{children}</ClientLayout>

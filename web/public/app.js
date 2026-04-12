@@ -34,6 +34,30 @@
         return labPublicOrigin() + '/api/netgsm?' + queryNoQ;
     }
 
+    /**
+     * NetGSM 30: Panelde çoğu zaman “alan adı / hosting’de gördüğüm IP” YANLIŞTIR — NetGSM,
+     * api.netgsm.com.tr’ye isteği atan SUNUCUNUN çıkış IP’sine bakar (ör. Vercel). A kaydı IP’si farklı olabilir.
+     */
+    function netgsmLogEgressHintOnce() {
+        if (typeof window === 'undefined' || window._netgsmEgressHintDone) return;
+        window._netgsmEgressHintDone = true;
+        var base = labPublicOrigin();
+        if (!base || /localhost|127\.0\.0\.1/i.test(base)) return;
+        fetch(base + '/api/egress-ip', { cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j || !j.ok || !j.ip) return;
+                console.info(
+                    '[NetGSM] NetGSM panelinde izin vermeniz gereken çıkış IP (bu uygulamanın sunucusu): ' +
+                        j.ip +
+                        '\n  — Doğrulama: ' +
+                        base +
+                        '/api/egress-ip\n  — Not: Domain satıcısının gösterdiği “site IP” / A kaydı genelde bu adres DEĞİLDİR.'
+                );
+            })
+            .catch(function () {});
+    }
+
     function labSaltBytesFromB64(saltB64) {
         var bin = atob(saltB64);
         var out = new Uint8Array(bin.length);
@@ -5797,6 +5821,7 @@
                 var msgid = parts[1] || '';
 
                 console.log('NetGSM Proxy Yanıt (v15):', txt);
+                if (status === 'ERROR' && (String(msgid).trim().split(/\s+/)[0] === '30' || /^ERROR\s*\|\s*30\b/i.test(txt))) netgsmLogEgressHintOnce();
 
                 // SUCCESS olması yeterli (ID olmasa bile mesaj gitmiş olabilir)
                 var ok = (status === 'SUCCESS');
@@ -5832,6 +5857,7 @@
                 var xmlDoc = parser.parseFromString(txt, "text/xml");
                 if (xmlDoc.getElementsByTagName("parsererror").length) {
                     console.warn('NetGSM: XML ayrıştırılamadı', txt.slice(0, 200));
+                    if (/^ERROR\s*\|\s*30\b/i.test(String(txt).trim())) netgsmLogEgressHintOnce();
                     if (val) { val.textContent = 'Bakiye'; val.removeAttribute('title'); }
                     return;
                 }
@@ -5868,7 +5894,7 @@
                 } else if (oldCode && oldCode !== '00') {
                     var netgsmErrMsg = {
                         '20': 'NetGSM 20: Mesaj metni veya uzunluk hatası (bakiye sorgusu dışı).',
-                        '30': 'NetGSM 30: Kullanıcı/şifre hatalı, API kapalı veya IP kısıtı. Panelde API açın; IP kısıtı varsa isteğin çıktığı sunucu IP’sini (ör. Vercel) NetGSM’e tanımlayın.',
+                        '30': 'NetGSM 30: Kullanıcı/şifre, API kapalı veya IP kısıtı. IP için: alan adı satıcısının gösterdiği “site IP” / A kaydı genelde YANLIŞTIR — konsoldaki [NetGSM] çıkış IP satırına bakın veya tarayıcıda …/api/egress-ip açın; NetGSM’e o adresi yazın. Ayrıca panelde SMS API açık mı kontrol edin.',
                         '40': 'NetGSM 40: Başlık (gönderen adı) tanımlı değil.',
                         '50': 'NetGSM 50: IYS kısıtı.',
                         '51': 'NetGSM 51: IYS marka bilgisi yok.',
@@ -5879,6 +5905,7 @@
                     };
                     var human = netgsmErrMsg[oldCode] || ('NetGSM hata kodu: ' + oldCode);
                     console.warn(human);
+                    if (oldCode === '30') netgsmLogEgressHintOnce();
                     if (val) {
                         val.textContent = 'NetGSM · ' + oldCode;
                         val.setAttribute('title', human);
