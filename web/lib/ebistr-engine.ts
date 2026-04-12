@@ -68,17 +68,25 @@ function getState() {
 // ── Dosya → bellek ─────────────────────────────────────────────────
 export function loadToken() {
   ensureDataDir();
+  const state = getState();
   try {
     if (fs.existsSync(TOKEN_FILE)) {
       const saved = JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf-8'));
       if (saved?.tokens && Array.isArray(saved.tokens)) {
-        getState().tokens = saved.tokens;
-        console.log(`[ebistr] ${getState().tokens.length} token yüklendi.`);
+        state.tokens = saved.tokens;
+        console.log(`[ebistr] ${state.tokens.length} token yüklendi.`);
       } else if (saved?.token) {
-        getState().tokens = [saved.token];
+        state.tokens = [saved.token];
       }
     }
   } catch (e: any) { console.warn('[ebistr] Token yüklenemedi:', e.message); }
+
+  /** Vercel serverless: data/ebistr_token.json kalıcı olmayabilir; JWT’yi buraya koyun (Production env). */
+  const envTok = (process.env.EBISTR_SERVER_TOKEN || '').trim();
+  if (envTok && !state.tokens.includes(envTok)) {
+    state.tokens.unshift(envTok);
+    console.log('[ebistr] EBISTR_SERVER_TOKEN ortam değişkeninden 1 token eklendi.');
+  }
 }
 
 export function loadCache() {

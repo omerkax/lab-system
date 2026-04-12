@@ -34,3 +34,5 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 Bu uygulama Git deposunda **`web/`** klasörünün içinde. Vercel projesinde **Settings → Build & Deployment → Root Directory** alanını **`web`** yapın; aksi halde kökteki `package.json` (proxy vb.) kaynak alınır ve Next.js bulunamaz.
 
 Ardından [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) ile ortam değişkenlerini ekleyebilirsiniz.
+
+**EBİSTR (Vercel):** Sunucuda `data/ebistr_token.json` kalıcı olmayabilir; soğuk başlangıçta veri boş kalır. Production’da **`EBISTR_SERVER_TOKEN`** ortam değişkenine (Vercel → Settings → Environment Variables) EBİSTR `Authorization` JWT’sini tek satır olarak ekleyin — `loadToken()` bunu her process başında okur. Eklenti/`setToken` ile eklenen token aynı instance’da çalışmaya devam eder.
