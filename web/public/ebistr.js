@@ -2472,7 +2472,8 @@ function ebistrYaklasanRender() {
                 else if (sap)   { bg='rgba(245,158,11,.18)'; fg='var(--amb)'; bdr='rgba(245,158,11,.5)'; fw='700'; }
                 else            { bg='rgba(16,185,129,.12)'; fg='var(--grn)'; bdr='rgba(16,185,129,.3)'; fw='600'; }
                 var tip = sap ? 'Lab: ' + n.labNo + ' | Sapma: %' + parseFloat(sap.sapmaYuzde).toFixed(0) + ' (ort: ' + parseFloat(sap.ortalama).toFixed(1) + ')' : (n.labNo || '');
-                return '<span title="' + tip + '" style="background:' + bg + ';color:' + fg + ';border:1px solid ' + bdr + ';font-weight:' + fw + ';padding:3px 8px;border-radius:6px;font-size:11px;font-family:var(--mono);cursor:default">' + fcStr + (sap ? ' ⚠' : '') + '</span>';
+                if (!n.kirildi) tip = (tip ? tip + ' — ' : '') + 'MPa yok: kırım / sonuç bekleniyor (hata değil)';
+                return '<span title="' + ebistrEscAttr(tip) + '" style="background:' + bg + ';color:' + fg + ';border:1px solid ' + bdr + ';font-weight:' + fw + ';padding:3px 8px;border-radius:6px;font-size:11px;font-family:var(--mono);cursor:default">' + fcStr + (sap ? ' ⚠' : '') + '</span>';
             }).join('');
             // İrsaliye no + ilk numunenin alma saati
             var firstTime = mg.numuneler[0] && mg.numuneler[0].takeTime ? mg.numuneler[0].takeTime : '';

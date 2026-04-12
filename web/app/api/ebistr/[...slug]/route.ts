@@ -206,6 +206,21 @@ function handleYaklasan(req: NextRequest) {
     return n.sampleSize?.name || n.numuneBoyutu || '';
   }
 
+  /** Aynı numune satırı JSON/sync tekrarında iki kez gelirse toplam şişer (ör. 12/24 + yarısı “–”). */
+  function rowNumuneUniqueKey(n: any): string {
+    const id = n.id != null && String(n.id).trim() !== '' ? String(n.id).trim() : '';
+    if (id) return `id:${id}`;
+    const brn = String(n.brnNo || '').trim();
+    const lab = String(n.labNo || n.labReportNo || '').trim();
+    const td = String(n.takeDate || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 19);
+    const cg = rowCuringId(n);
+    const irs = rowIrsaliye(n).trim();
+    return `${brn}|${lab}|${td}|${cg}|${irs}`;
+  }
+
   function sapmaTestEt(fcler: number[], labNolar: string[]) {
     if (fcler.length < 2) return [];
     const ort = fcler.reduce((a, b) => a + b, 0) / fcler.length;
@@ -262,7 +277,14 @@ function handleYaklasan(req: NextRequest) {
       const fark     = Math.round((kirimMs - bugunMs) / 86400000);
       if (!hedefFarklar.includes(fark)) return;
 
-      const kurNums = g.numuneler.filter((n: any) => rowCuringId(n) === kurGun);
+      const kurNumsRaw = g.numuneler.filter((n: any) => rowCuringId(n) === kurGun);
+      const seenK = new Set<string>();
+      const kurNums = kurNumsRaw.filter((n: any) => {
+        const k = rowNumuneUniqueKey(n);
+        if (seenK.has(k)) return false;
+        seenK.add(k);
+        return true;
+      });
       if (!kurNums.length) return;
 
       const numuneBilgileri = kurNums
@@ -299,7 +321,7 @@ function handleYaklasan(req: NextRequest) {
         numuneler: numuneBilgileri, fcOrtalama,
         sapmaliVar: sapmaliNumuneler.length > 0, sapmaliNumuneler,
         kirimGecti: kirimStr < bugunStr,
-        tamamlandi: kirilanlar.length >= kurNums.length && kurNums.length > 0,
+        tamamlandi: kirilanlar.length === kurNums.length && kurNums.length > 0,
       });
     });
   });

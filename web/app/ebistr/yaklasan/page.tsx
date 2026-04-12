@@ -162,7 +162,7 @@ export default function Page() {
   useEffect(() => {
     const el = shellRef.current;
     if (el) el.innerHTML = HTML;
-    void ensureEbistrScript('/ebistr.js?v=20260413-ebistr-extension-v11').then(() => {
+    void ensureEbistrScript('/ebistr.js?v=20260416-yaklasan-dedupe-tip').then(() => {
       const check = () => {
         if (init.current) return;
         if (typeof (window as any).ebistrInit === 'function') {

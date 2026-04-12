@@ -388,7 +388,7 @@ function EbistrInner() {
       }
     };
 
-    void ensureEbistrScript('/ebistr.js?v=20260413-ebistr-extension-v11').then(() => {
+    void ensureEbistrScript('/ebistr.js?v=20260416-yaklasan-dedupe-tip').then(() => {
       runInit();
     });
   }, [params]);
