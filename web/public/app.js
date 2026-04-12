@@ -3353,13 +3353,25 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ data: yibfMap })
             }).catch(function() {});
-            // Firestore'a sadece yibfMap kaydet (satırlar 1MB'ı aşıyor)
-            if (typeof window.fsSet === 'function') {
-                window.fsSet('sys_config', 'rapor_defteri', {
-                    rows: [],
-                    map: yibfMap,
-                    updatedAt: new Date().toISOString()
-                }).catch(function() {});
+            // Firestore delta merge — sadece yeni YİBF'leri ekle, mevcutları koru
+            if (typeof window.fsSet === 'function' && typeof window.fsGetDoc === 'function') {
+                window.fsGetDoc('sys_config', 'rapor_defteri').then(function(existing) {
+                    var existingMap = (existing && existing.map && typeof existing.map === 'object') ? existing.map : {};
+                    // Mevcut YİBF'leri koru, sadece eksik olanları ekle
+                    var mergedMap = Object.assign({}, yibfMap, existingMap);
+                    return window.fsSet('sys_config', 'rapor_defteri', {
+                        rows: [],
+                        map: mergedMap,
+                        updatedAt: new Date().toISOString()
+                    });
+                }).catch(function() {
+                    // Mevcut veri okunamazsa sadece yeni map'i kaydet
+                    window.fsSet('sys_config', 'rapor_defteri', {
+                        rows: [],
+                        map: yibfMap,
+                        updatedAt: new Date().toISOString()
+                    }).catch(function() {});
+                });
             }
         } catch(e) {}
     }
