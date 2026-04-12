@@ -149,10 +149,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
   return NextResponse.json({ ok: false, err: 'Bilinmeyen endpoint: ' + endpoint }, { status: 404, headers: ebistrHeaders });
 }
 
+function resolveNumunelerSource(cache: ReturnType<typeof getCache>): { rows: any[]; fromJsonSnapshot: boolean } {
+  if (cache.numuneler.length) return { rows: cache.numuneler, fromJsonSnapshot: false };
+  const fb = cache.fallbackNormalized;
+  if (fb && fb.length) return { rows: fb, fromJsonSnapshot: true };
+  return { rows: [], fromJsonSnapshot: false };
+}
+
 // ── /api/ebistr/yaklasan ──────────────────────────────────────────
 function handleYaklasan(req: NextRequest) {
   const cache = getCache();
-  if (!cache.numuneler.length) {
+  const src = resolveNumunelerSource(cache);
+  if (!src.rows.length) {
     return NextResponse.json({ ok: true, numuneler: [], lastSync: cache.sonGuncelleme }, { headers: ebistrHeaders });
   }
 
@@ -164,6 +172,40 @@ function handleYaklasan(req: NextRequest) {
 
   const getStr = (v: any) => { if (!v) return ''; if (typeof v === 'string') return v; return v.name || v.title || v.fullName || ''; };
 
+  /** Ham EBİSTR API satırı veya ebistr-numuneler.json (normalize) satırı */
+  function rowYibfNo(n: any): string {
+    const yb = n.yibf;
+    if (yb != null && typeof yb === 'object') {
+      return yb.no || yb.number || yb.yibfNo || yb.registrationNo || (yb.id != null ? String(yb.id) : '') || '';
+    }
+    if (typeof yb === 'string' && yb.trim()) return yb.trim();
+    return '';
+  }
+  function rowYObj(n: any): any | null {
+    return n.yibf != null && typeof n.yibf === 'object' ? n.yibf : null;
+  }
+  function rowBolum(n: any): string {
+    return String(n.structuralComponent || n.yapiElem || '').trim();
+  }
+  function rowBeton(n: any): string {
+    return n.concreteClass?.name || n.betonSinifi || '';
+  }
+  function rowCuringId(n: any): number {
+    const fromApi = n.curingTime?.id;
+    if (fromApi != null && fromApi !== '') return Number(fromApi) || 0;
+    return Number(n.curingGun) || 0;
+  }
+  function rowFcRaw(n: any): number {
+    const v = n.pressureResistance != null && n.pressureResistance !== '' ? n.pressureResistance : n.fc;
+    return Number(v) || 0;
+  }
+  function rowIrsaliye(n: any): string {
+    return n.wayBillNumber || n.irsaliye || '';
+  }
+  function rowBoyut(n: any): string {
+    return n.sampleSize?.name || n.numuneBoyutu || '';
+  }
+
   function sapmaTestEt(fcler: number[], labNolar: string[]) {
     if (fcler.length < 2) return [];
     const ort = fcler.reduce((a, b) => a + b, 0) / fcler.length;
@@ -174,32 +216,40 @@ function handleYaklasan(req: NextRequest) {
   }
 
   const gruplar: Record<string, any> = {};
-  cache.numuneler.forEach((n: any) => {
+  src.rows.forEach((n: any) => {
     if (!n.takeDate) return;
-    const tD    = n.takeDate ? new Date(new Date(n.takeDate).getTime() + 3*3600000).toISOString().substring(0,10) : '';
-    const y     = n.yibf || {};
-    const yibfNo = y.no || y.number || y.yibfNo || y.registrationNo || (y.id ? String(y.id) : '');
-    const bolum = n.structuralComponent || '';
+    const tD = n.takeDate ? new Date(new Date(n.takeDate).getTime() + 3 * 3600000).toISOString().substring(0, 10) : '';
+    const y = rowYObj(n);
+    const yibfNo = rowYibfNo(n);
+    const bolum = rowBolum(n);
     const grupKey = yibfNo ? `YBF_${yibfNo}__${tD}` : `BRN_${n.brnNo || 'x'}__${tD}`;
 
     if (!gruplar[grupKey]) {
       gruplar[grupKey] = {
         brnNolar: new Set(), betonSiniflari: new Set(), yapiElemler: new Set(),
         yibfNo, takeDate: tD,
-        yapiDenetim: y.ydf?.name || '', contractor: getStr(y.contractor) || getStr(y.contractorName) || '',
-        buildingOwner: getStr(y.buildingOwner) || getStr(y.ownerName) || getStr(y.owner) || '',
-        buildingAddress: y.buildingAddress || y.address || '',
+        yapiDenetim: (y && y.ydf?.name) || n.yapiDenetim || '',
+        contractor: y ? getStr(y.contractor) || getStr(y.contractorName) || '' : String(n.contractor || ''),
+        buildingOwner: y
+          ? getStr(y.buildingOwner) || getStr(y.ownerName) || getStr(y.owner) || ''
+          : String(n.buildingOwner || ''),
+        buildingAddress: y ? y.buildingAddress || y.address || '' : String(n.buildingAddress || ''),
         numuneler: [],
       };
     }
     const g = gruplar[grupKey];
     if (n.brnNo) g.brnNolar.add(n.brnNo);
-    const beton = n.concreteClass?.name || '';
+    const beton = rowBeton(n);
     if (beton) g.betonSiniflari.add(beton);
     if (bolum) g.yapiElemler.add(bolum);
-    if (!g.buildingOwner) g.buildingOwner = getStr(y.buildingOwner) || getStr(y.ownerName) || getStr(y.owner) || '';
-    if (!g.contractor) g.contractor = getStr(y.contractor) || '';
-    if (!g.yapiDenetim && y.ydf) g.yapiDenetim = y.ydf.name || '';
+    if (!g.buildingOwner) {
+      g.buildingOwner = y
+        ? getStr(y.buildingOwner) || getStr(y.ownerName) || getStr(y.owner) || ''
+        : String(n.buildingOwner || '');
+    }
+    if (!g.contractor) g.contractor = y ? getStr(y.contractor) || '' : String(n.contractor || '');
+    if (!g.yapiDenetim && y && y.ydf) g.yapiDenetim = y.ydf.name || '';
+    if (!g.yapiDenetim && n.yapiDenetim) g.yapiDenetim = n.yapiDenetim;
     g.numuneler.push(n);
   });
 
@@ -212,19 +262,24 @@ function handleYaklasan(req: NextRequest) {
       const fark     = Math.round((kirimMs - bugunMs) / 86400000);
       if (!hedefFarklar.includes(fark)) return;
 
-      const kurNums = g.numuneler.filter((n: any) => (n.curingTime?.id || 0) === kurGun);
+      const kurNums = g.numuneler.filter((n: any) => rowCuringId(n) === kurGun);
       if (!kurNums.length) return;
 
       const numuneBilgileri = kurNums
         .sort((a: any, b: any) => (a.takeDate || '') < (b.takeDate || '') ? -1 : 1)
-        .map((n: any) => ({
-          labNo: n.labNo || n.labReportNo || '',
-          fc: parseFloat((n.pressureResistance || 0).toFixed(2)),
-          kirildi: (n.pressureResistance || 0) > 0,
-          irsaliye: n.wayBillNumber || '',
-          takeTime: n.takeDate ? new Date(new Date(n.takeDate).getTime() + 3*3600000).toISOString().substring(11,16) : '',
-          boyut: n.sampleSize?.name || '',
-        }));
+        .map((n: any) => {
+          const fc = rowFcRaw(n);
+          return {
+            labNo: n.labNo || n.labReportNo || '',
+            fc: parseFloat(fc.toFixed(2)),
+            kirildi: fc > 0,
+            irsaliye: rowIrsaliye(n),
+            takeTime: n.takeDate
+              ? new Date(new Date(n.takeDate).getTime() + 3 * 3600000).toISOString().substring(11, 16)
+              : '',
+            boyut: rowBoyut(n),
+          };
+        });
 
       const kirilanlar = numuneBilgileri.filter((n: any) => n.kirildi);
       const fcler = kirilanlar.map((n: any) => n.fc);
@@ -254,13 +309,6 @@ function handleYaklasan(req: NextRequest) {
 }
 
 // ── /api/ebistr/numuneler ─────────────────────────────────────────
-function resolveNumunelerSource(cache: ReturnType<typeof getCache>): { rows: any[]; fromJsonSnapshot: boolean } {
-  if (cache.numuneler.length) return { rows: cache.numuneler, fromJsonSnapshot: false };
-  const fb = cache.fallbackNormalized;
-  if (fb && fb.length) return { rows: fb, fromJsonSnapshot: true };
-  return { rows: [], fromJsonSnapshot: false };
-}
-
 function handleNumuneler(body: any) {
   const cache = getCache();
   const src = resolveNumunelerSource(cache);
