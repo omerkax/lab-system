@@ -3354,9 +3354,22 @@
                 body: JSON.stringify({ data: yibfMap })
             }).catch(function() {});
             // Firestore'a da kaydet — Vercel /tmp kaybolsa bile diğer cihazlar görsün
+            // Sadece kullanılan sütunları tut (Firestore 1MB limiti)
             if (typeof window.fsSet === 'function') {
+                var compactRows = allData.map(function(r) {
+                    return {
+                        'YAPI SAHİBİ':      (r['YAPI SAHİBİ'] || '').toString().trim(),
+                        'DENEYİ TALEP EDEN':(r['DENEYİ TALEP EDEN'] || r['YAPI DENETİM'] || '').toString().trim(),
+                        'BETON':            (r['BETON'] || r['BETON FİRMASI'] || '').toString().trim(),
+                        'YİBF':             (r['YİBF'] || r['YIBF'] || '').toString().trim(),
+                        'NMN.ALINIŞ TARİHİ':(r['NMN.ALINIŞ TARİHİ'] || '').toString().trim(),
+                        'TİP':              (r['TİP'] || '').toString().trim(),
+                        'YAPI BÖLÜMÜ':      (r['YAPI BÖLÜMÜ'] || '').toString().trim(),
+                        'BLOK':             (r['BLOK'] || '').toString().trim()
+                    };
+                });
                 window.fsSet('sys_config', 'rapor_defteri', {
-                    rows: [],
+                    rows: compactRows,
                     map: yibfMap,
                     updatedAt: new Date().toISOString()
                 }).catch(function() {});
@@ -3383,16 +3396,24 @@
 
     function loadRapor() {
         var saved = lsGet('alibey_rapor');
-        if (!saved || !saved.length) return;
-        allData = saved;
-        afterRaporLoad(null);
-        // Show saved info
-        var meta = lsGet('alibey_rapor_meta');
-        var info = document.getElementById('savedRaporInfo');
-        if (info && meta) {
-            info.style.display = '';
-            document.getElementById('savedRaporMeta').textContent = meta.name + ' · ' + meta.count + ' kayıt · ' + meta.date;
+        if (saved && saved.length) {
+            allData = saved;
+            afterRaporLoad(null);
+            var meta = lsGet('alibey_rapor_meta');
+            var info = document.getElementById('savedRaporInfo');
+            if (info && meta) {
+                info.style.display = '';
+                document.getElementById('savedRaporMeta').textContent = meta.name + ' · ' + meta.count + ' kayıt · ' + meta.date;
+            }
+            return;
         }
+        // localStorage boşsa Firestore'dan yükle
+        if (typeof window.fsGetDoc !== 'function') return;
+        window.fsGetDoc('sys_config', 'rapor_defteri').then(function(doc) {
+            if (!doc || !Array.isArray(doc.rows) || !doc.rows.length) return;
+            allData = doc.rows;
+            afterRaporLoad('(Firestore önbelleği)');
+        }).catch(function() {});
     }
 
     function clearSavedRapor() {
