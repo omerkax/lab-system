@@ -162,7 +162,7 @@ export default function Page() {
   useEffect(() => {
     const el = shellRef.current;
     if (el) el.innerHTML = HTML;
-    void ensureEbistrScript('/ebistr.js?v=20260412-waituntil-retry').then(() => {
+    void ensureEbistrScript('/ebistr.js?v=20260412-vercel-data-api').then(() => {
       const check = () => {
         if (init.current) return;
         if (typeof (window as any).ebistrInit === 'function') {

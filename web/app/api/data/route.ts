@@ -3,17 +3,18 @@ import { writeFile, readFile, readdir, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import { ebistrNumuneRowKey } from '@/lib/ebistr-numune-key';
-
-const DATA_DIR = path.join(process.cwd(), 'data');
+import { getEbistrDataDir } from '@/lib/ebistr-engine';
 
 async function ensureDir() {
-  if (!existsSync(DATA_DIR)) await mkdir(DATA_DIR, { recursive: true });
+  const dir = getEbistrDataDir();
+  if (!existsSync(dir)) await mkdir(dir, { recursive: true });
 }
 
 // GET /api/data?type=ebistr-numuneler  → dosya listesi veya son veri
 // awaitSync=1 → EBİSTR’den tam çekim beklenir (token varsa); warmSync=1 → önbellek >~40 sn ise arka planda çekim
 export async function GET(req: NextRequest) {
   await ensureDir();
+  const DATA_DIR = getEbistrDataDir();
   const type = req.nextUrl.searchParams.get('type') || 'ebistr-numuneler';
   const latest = req.nextUrl.searchParams.get('latest') === '1';
   const awaitSync = req.nextUrl.searchParams.get('awaitSync') === '1';
@@ -65,6 +66,7 @@ export async function GET(req: NextRequest) {
 // merge:false    → direkt üstüne yazar, birleştirme olmaz
 export async function POST(req: NextRequest) {
   await ensureDir();
+  const DATA_DIR = getEbistrDataDir();
   try {
     const body = await req.json();
     const type    = body.type || 'data';

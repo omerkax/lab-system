@@ -35,7 +35,7 @@ Bu uygulama Git deposunda **`web/`** klasörünün içinde. Vercel projesinde **
 
 Ardından [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) ile ortam değişkenlerini ekleyebilirsiniz.
 
-**EBİSTR (Vercel):** `/var/task` salt okunur olduğu için önbellek ve token dosyaları otomatik olarak **`/tmp/alibey-ebistr-data`** altına yazılır (aynı lambda ömrü boyunca). Kalıcı paylaşımlı depo için ileride harici DB önerilir. İsteğe bağlı **`EBISTR_DATA_DIR`**: yazma dizinini kendin belirle.
+**EBİSTR (Vercel):** `/var/task` salt okunur olduğu için önbellek, token ve **`/api/data`** ile **`/api/rapor`** / **`/api/sozlesme`** (JSON yazımları) aynı **`/tmp/alibey-ebistr-data`** kökünü kullanır. Kalıcı paylaşımlı depo için ileride harici DB önerilir. İsteğe bağlı **`EBISTR_DATA_DIR`**: yazma dizinini kendin belirle.
 
 **`EBISTR_SERVER_TOKEN`:** Production’da EBİSTR JWT’sini Vercel env’e koy — `loadToken()` her process başında okur; soğuk başlangıçta dosya yoksa bile senkron çalışır.
 

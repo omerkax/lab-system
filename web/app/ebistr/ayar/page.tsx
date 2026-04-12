@@ -139,7 +139,7 @@ export default function Page() {
     };
     btn?.addEventListener('click', sendManualToken);
 
-    void ensureEbistrScript('/ebistr.js?v=20260412-waituntil-retry').then(() => {
+    void ensureEbistrScript('/ebistr.js?v=20260412-vercel-data-api').then(() => {
       const w = window as Window & { ebistrAyarYukle?: () => void };
       const tick = () => {
         if (typeof w.ebistrAyarYukle === 'function') {

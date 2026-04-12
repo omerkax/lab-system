@@ -3,23 +3,28 @@ import { readFile, writeFile, readdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import { mkdir } from 'fs/promises';
+import { getEbistrDataDir } from '@/lib/ebistr-engine';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
-const SOZLESME_FILE = path.join(DATA_DIR, 'sozlesmeler.json');
-const TEMPLATE_PATH = path.join(process.cwd(), 'data', 'sozlesme-taslak.docx');
-// Fallback: check multiple locations for the template
+// Fallback: check multiple locations for the template (salt okunur bundle)
 const TEMPLATE_CANDIDATES = [
   path.join(process.cwd(), 'data', 'sozlesme-taslak.docx'),
   '/Users/omerkaya/Desktop/alibey-v2/sozlesme-taslak.docx',
 ];
 
+function sozlesmePaths() {
+  const DATA_DIR = getEbistrDataDir();
+  return { DATA_DIR, SOZLESME_FILE: path.join(DATA_DIR, 'sozlesmeler.json') };
+}
+
 async function ensureDir() {
+  const { DATA_DIR } = sozlesmePaths();
   if (!existsSync(DATA_DIR)) await mkdir(DATA_DIR, { recursive: true });
 }
 
 // GET → list all contracts
 export async function GET() {
   await ensureDir();
+  const { SOZLESME_FILE } = sozlesmePaths();
   if (!existsSync(SOZLESME_FILE)) {
     return NextResponse.json({ ok: true, rows: [] });
   }
@@ -31,6 +36,7 @@ export async function GET() {
 // POST { action: 'generate', data: {...} } → generate filled Word doc
 export async function POST(req: NextRequest) {
   await ensureDir();
+  const { SOZLESME_FILE } = sozlesmePaths();
   try {
     const body = await req.json();
     const { action, data } = body;

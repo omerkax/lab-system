@@ -11,7 +11,7 @@ import { ebistrNumuneRowKey } from '@/lib/ebistr-numune-key';
 const EBISTR_API = 'https://business.ebistr.com/api';
 
 /** Yerel: web/data. Vercel serverless: /var/task salt okunur → /tmp (yine kalıcı değil, aynı instance + waitUntil için yeterli). */
-function getEbistrDataDir(): string {
+export function getEbistrDataDir(): string {
   const override = (process.env.EBISTR_DATA_DIR || '').trim();
   if (override) return path.resolve(override);
   if (process.env.VERCEL) return path.join('/tmp', 'alibey-ebistr-data');

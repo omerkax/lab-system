@@ -383,7 +383,7 @@ function EbistrInner() {
       }
     };
 
-    void ensureEbistrScript('/ebistr.js?v=20260412-waituntil-retry').then(() => {
+    void ensureEbistrScript('/ebistr.js?v=20260412-vercel-data-api').then(() => {
       runInit();
     });
   }, [params]);

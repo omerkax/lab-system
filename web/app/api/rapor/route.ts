@@ -4,17 +4,22 @@ import { existsSync } from 'fs';
 import path from 'path';
 import { mkdir } from 'fs/promises';
 import { mergeRaporMaps } from '@/lib/rapor-defter-lookup';
+import { getEbistrDataDir } from '@/lib/ebistr-engine';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
-const RAPOR_FILE = path.join(DATA_DIR, 'rapor-defteri.json');
+function raporPaths() {
+  const DATA_DIR = getEbistrDataDir();
+  return { DATA_DIR, RAPOR_FILE: path.join(DATA_DIR, 'rapor-defteri.json') };
+}
 
 async function ensureDir() {
+  const { DATA_DIR } = raporPaths();
   if (!existsSync(DATA_DIR)) await mkdir(DATA_DIR, { recursive: true });
 }
 
 // GET → rapor defteri JSON (YİBF lookup + full rows)
 export async function GET() {
   await ensureDir();
+  const { RAPOR_FILE } = raporPaths();
   if (!existsSync(RAPOR_FILE)) {
     return NextResponse.json({ ok: true, rows: [], map: {}, data: {} });
   }
@@ -36,6 +41,7 @@ export async function GET() {
 // Also accepts legacy { data: { [yibf]: {...} } } for backward compat
 export async function POST(req: NextRequest) {
   await ensureDir();
+  const { RAPOR_FILE } = raporPaths();
   try {
     const body = await req.json();
     let toStore: any;

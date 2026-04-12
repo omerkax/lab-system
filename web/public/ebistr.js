@@ -82,11 +82,25 @@ function ebistrPostNumunelerJson(body, maxRetries) {
             body: JSON.stringify(body || {})
         })
             .then(function (r) {
-                return r.json().then(function (d) {
-                    return { status: r.status, d: d };
-                });
+                return r
+                    .json()
+                    .then(function (d) {
+                        return { status: r.status, d: d };
+                    })
+                    .catch(function () {
+                        return { status: r.status, d: { ok: false, err: 'Sunucu yanıtı okunamadı' } };
+                    });
             })
             .then(function (o) {
+                if (o.status === 401 || o.status === 403) {
+                    return o.d && o.d.err
+                        ? o.d
+                        : {
+                              ok: false,
+                              err:
+                                  'Bu sunucu örneğinde EBİSTR oturumu yok (Vercel). Vercel’e EBISTR_SERVER_TOKEN ekleyin veya Ayar’dan tokenı yenileyin.',
+                          };
+                }
                 if (o.status === 202 && left-- > 0) {
                     return new Promise(function (res) {
                         setTimeout(function () {
