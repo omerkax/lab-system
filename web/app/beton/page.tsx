@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 import { DEFAULT_ADMIN_ROLE, readLabSession, roleAllowsModuleEdit } from '@/lib/lab-auth';
 import { isLikelyAdaParsel, numuneMatchesYibfQuery } from '@/lib/yibf-utils';
 import { createRaporDefterYibfLookup } from '@/lib/rapor-defter-lookup';
+import { fetchRaporDefteriWithFallback } from '@/lib/rapor-defteri-remote';
 import { ebistrNumuneRowKey } from '@/lib/ebistr-numune-key';
 import {
   belgeHintsFromRapor,
@@ -337,12 +338,10 @@ async function betonPageInit() {
   w.betonYibfOtoFill = (yibf: string) => {
     if (!yibf || yibf.length < 3) return;
     if (!w.raporDefterYibfBilgi && !w._betonRaporLoaded) {
-      fetch('/api/rapor')
-        .then(r => r.json())
-        .then((json: any) => {
-          const rows = json.rows || [];
+      fetchRaporDefteriWithFallback(window)
+        .then(({ rows, map }) => {
           w._raporRows = rows;
-          w.raporDefterYibfBilgi = createRaporDefterYibfLookup(rows, json.map || json.data);
+          w.raporDefterYibfBilgi = createRaporDefterYibfLookup(rows, map);
           w._betonRaporLoaded = true;
           doAutoFill(yibf);
         })
@@ -588,12 +587,10 @@ async function betonPageInit() {
   betonPersonelWrapReset();
   renderBetonListe(w._betonData);
 
-  fetch('/api/rapor')
-    .then(r => r.json())
-    .then((json: any) => {
-      const rows = json.rows || [];
+  fetchRaporDefteriWithFallback(window)
+    .then(({ rows, map }) => {
       w._raporRows = rows;
-      w.raporDefterYibfBilgi = createRaporDefterYibfLookup(rows, json.map || json.data);
+      w.raporDefterYibfBilgi = createRaporDefterYibfLookup(rows, map);
       renderBetonListe(w._betonData || []);
     })
     .catch(() => {});
