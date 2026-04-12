@@ -8,10 +8,23 @@ import fs from 'fs';
 import path from 'path';
 import { ebistrNumuneRowKey } from '@/lib/ebistr-numune-key';
 
-const EBISTR_API  = 'https://business.ebistr.com/api';
-const DATA_DIR    = path.join(process.cwd(), 'data');
-const TOKEN_FILE  = path.join(DATA_DIR, 'ebistr_token.json');
-const CACHE_FILE  = path.join(DATA_DIR, 'ebistr_cache.json');
+const EBISTR_API = 'https://business.ebistr.com/api';
+
+/** Yerel: web/data. Vercel serverless: /var/task salt okunur → /tmp (yine kalıcı değil, aynı instance + waitUntil için yeterli). */
+function getEbistrDataDir(): string {
+  const override = (process.env.EBISTR_DATA_DIR || '').trim();
+  if (override) return path.resolve(override);
+  if (process.env.VERCEL) return path.join('/tmp', 'alibey-ebistr-data');
+  return path.join(process.cwd(), 'data');
+}
+
+function ebistrTokenPath() {
+  return path.join(getEbistrDataDir(), 'ebistr_token.json');
+}
+
+function ebistrCachePath() {
+  return path.join(getEbistrDataDir(), 'ebistr_cache.json');
+}
 
 // ── Global durum (process ömrü boyunca yaşar) ──────────────────────
 declare global {
@@ -40,7 +53,8 @@ interface EbistrCache {
 let telemetrySyncing = false;
 
 function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  const dir = getEbistrDataDir();
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
 function getState() {
@@ -70,8 +84,9 @@ export function loadToken() {
   ensureDataDir();
   const state = getState();
   try {
-    if (fs.existsSync(TOKEN_FILE)) {
-      const saved = JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf-8'));
+    const tf = ebistrTokenPath();
+    if (fs.existsSync(tf)) {
+      const saved = JSON.parse(fs.readFileSync(tf, 'utf-8'));
       if (saved?.tokens && Array.isArray(saved.tokens)) {
         state.tokens = saved.tokens;
         console.log(`[ebistr] ${state.tokens.length} token yüklendi.`);
@@ -92,8 +107,9 @@ export function loadToken() {
 export function loadCache() {
   ensureDataDir();
   try {
-    if (fs.existsSync(CACHE_FILE)) {
-      const saved = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8'));
+    const cf = ebistrCachePath();
+    if (fs.existsSync(cf)) {
+      const saved = JSON.parse(fs.readFileSync(cf, 'utf-8'));
       getState().cache = saved;
       const st = getState().cache;
       if (!st.mailDurum || typeof st.mailDurum !== 'object') st.mailDurum = {};
@@ -115,7 +131,7 @@ export function mergeMailDurum(merge: Record<string, boolean>) {
 export function saveCache() {
   ensureDataDir();
   try {
-    fs.writeFileSync(CACHE_FILE, JSON.stringify(getState().cache));
+    fs.writeFileSync(ebistrCachePath(), JSON.stringify(getState().cache));
   } catch (e: any) { console.error('[ebistr] Cache kaydedilemedi:', e.message); }
 }
 
@@ -127,14 +143,15 @@ export function addToken(token: string) {
   if (state.tokens.length > 5) state.tokens = state.tokens.slice(0, 5);
   ensureDataDir();
   try {
-    fs.writeFileSync(TOKEN_FILE, JSON.stringify({ tokens: state.tokens, date: new Date().toISOString() }));
+    fs.writeFileSync(ebistrTokenPath(), JSON.stringify({ tokens: state.tokens, date: new Date().toISOString() }));
     console.log(`[ebistr] Token eklendi. Toplam: ${state.tokens.length}`);
   } catch {}
 }
 
 export function clearTokens() {
   getState().tokens = [];
-  if (fs.existsSync(TOKEN_FILE)) fs.unlinkSync(TOKEN_FILE);
+  const tf = ebistrTokenPath();
+  if (fs.existsSync(tf)) fs.unlinkSync(tf);
 }
 
 export function getStatus() {
@@ -308,10 +325,10 @@ export async function performSync(): Promise<void> {
     saveCache();
     console.log(`\n[ebistr] ✅ Sync tamamlandı: ${samples.length} numune.`);
 
-    // data/ebistr-numuneler.json'a da merge ile kaydet (HTTP olmadan, doğrudan)
+    // ebistr-numuneler.json — yerel web/data; Vercel’de /tmp altı
     try {
       const normalized = samples.map(normalizeNumune);
-      const numunerFile = path.join(DATA_DIR, 'ebistr-numuneler.json');
+      const numunerFile = path.join(getEbistrDataDir(), 'ebistr-numuneler.json');
       let existing: any[] = [];
       try { existing = JSON.parse(fs.readFileSync(numunerFile, 'utf-8')); } catch {}
       if (!Array.isArray(existing)) existing = [];
@@ -320,7 +337,7 @@ export async function performSync(): Promise<void> {
       const onlyNew = normalized.filter((item: any) => !existingKeys.has(ebistrNumuneRowKey(item)));
       const merged = [...existing, ...onlyNew];
       fs.writeFileSync(numunerFile, JSON.stringify(merged, null, 2), 'utf-8');
-      console.log(`[ebistr] data/ebistr-numuneler.json güncellendi: +${onlyNew.length} yeni, toplam ${merged.length} kayıt.`);
+      console.log(`[ebistr] ebistr-numuneler.json güncellendi (+${onlyNew.length} yeni, toplam ${merged.length}): ${numunerFile}`);
     } catch (e: any) {
       console.warn('[ebistr] ebistr-numuneler.json yazılamadı:', e.message);
     }

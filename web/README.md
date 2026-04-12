@@ -35,6 +35,8 @@ Bu uygulama Git deposunda **`web/`** klasörünün içinde. Vercel projesinde **
 
 Ardından [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) ile ortam değişkenlerini ekleyebilirsiniz.
 
-**EBİSTR (Vercel):** Sunucuda `data/ebistr_token.json` kalıcı olmayabilir; soğuk başlangıçta veri boş kalır. Production’da **`EBISTR_SERVER_TOKEN`** ortam değişkenine (Vercel → Settings → Environment Variables) EBİSTR `Authorization` JWT’sini tek satır olarak ekleyin — `loadToken()` bunu her process başında okur. Eklenti/`setToken` ile eklenen token aynı instance’da çalışmaya devam eder.
+**EBİSTR (Vercel):** `/var/task` salt okunur olduğu için önbellek ve token dosyaları otomatik olarak **`/tmp/alibey-ebistr-data`** altına yazılır (aynı lambda ömrü boyunca). Kalıcı paylaşımlı depo için ileride harici DB önerilir. İsteğe bağlı **`EBISTR_DATA_DIR`**: yazma dizinini kendin belirle.
+
+**`EBISTR_SERVER_TOKEN`:** Production’da EBİSTR JWT’sini Vercel env’e koy — `loadToken()` her process başında okur; soğuk başlangıçta dosya yoksa bile senkron çalışır.
 
 İlk numune çekimi uzun sürer; API bazen **202** döner. Sunucu `@vercel/functions` **`waitUntil`** ile senkronu yanıttan sonra tamamlar; istemci **202** için birkaç kez yeniden dener. Hobby planda **maxDuration** üst sınırı düşük olabilir — büyük veri için Pro veya `EBISTR_SERVER_TOKEN` önerilir.
