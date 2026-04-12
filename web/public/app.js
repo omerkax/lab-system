@@ -3353,23 +3353,10 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ data: yibfMap })
             }).catch(function() {});
-            // Firestore'a da kaydet — Vercel /tmp kaybolsa bile diğer cihazlar görsün
-            // Sadece kullanılan sütunları tut (Firestore 1MB limiti)
+            // Firestore'a sadece yibfMap kaydet (satırlar 1MB'ı aşıyor)
             if (typeof window.fsSet === 'function') {
-                var compactRows = allData.map(function(r) {
-                    return {
-                        'YAPI SAHİBİ':      (r['YAPI SAHİBİ'] || '').toString().trim(),
-                        'DENEYİ TALEP EDEN':(r['DENEYİ TALEP EDEN'] || r['YAPI DENETİM'] || '').toString().trim(),
-                        'BETON':            (r['BETON'] || r['BETON FİRMASI'] || '').toString().trim(),
-                        'YİBF':             (r['YİBF'] || r['YIBF'] || '').toString().trim(),
-                        'NMN.ALINIŞ TARİHİ':(r['NMN.ALINIŞ TARİHİ'] || '').toString().trim(),
-                        'TİP':              (r['TİP'] || '').toString().trim(),
-                        'YAPI BÖLÜMÜ':      (r['YAPI BÖLÜMÜ'] || '').toString().trim(),
-                        'BLOK':             (r['BLOK'] || '').toString().trim()
-                    };
-                });
                 window.fsSet('sys_config', 'rapor_defteri', {
-                    rows: compactRows,
+                    rows: [],
                     map: yibfMap,
                     updatedAt: new Date().toISOString()
                 }).catch(function() {});
@@ -3407,12 +3394,31 @@
             }
             return;
         }
-        // localStorage boşsa Firestore'dan yükle
+        // localStorage boşsa Firestore'dan yükle (map → minimal satır listesi)
         if (typeof window.fsGetDoc !== 'function') return;
         window.fsGetDoc('sys_config', 'rapor_defteri').then(function(doc) {
-            if (!doc || !Array.isArray(doc.rows) || !doc.rows.length) return;
-            allData = doc.rows;
-            afterRaporLoad('(Firestore önbelleği)');
+            if (!doc) return;
+            var fsRows = Array.isArray(doc.rows) && doc.rows.length ? doc.rows : null;
+            var fsMap  = doc.map && typeof doc.map === 'object' ? doc.map : null;
+            if (fsRows) {
+                allData = fsRows;
+            } else if (fsMap) {
+                // map'ten minimal satır kur — owner listesi için yeterli
+                allData = Object.keys(fsMap).map(function(yibf) {
+                    var m = fsMap[yibf] || {};
+                    return {
+                        'YİBF': yibf,
+                        'YAPI SAHİBİ':       m.yapiSahibi || '',
+                        'DENEYİ TALEP EDEN': m.yapiDenetim || '',
+                        'BETON':             m.betonFirmasi || '',
+                        'YAPI BÖLÜMÜ':       m.yapiBolumu || '',
+                        'BLOK':              m.blok || '',
+                        'TİP':               m.tip || '',
+                        'NMN.ALINIŞ TARİHİ': m.alinTarih || ''
+                    };
+                });
+            }
+            if (allData.length) afterRaporLoad('(Firestore önbelleği)');
         }).catch(function() {});
     }
 
