@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   addToken, clearTokens, getStatus, getCache, getTokens,
-  performSync, normalizeNumune, syncTelemetriOnly, mergeMailDurum,
+  performSync, normalizeNumune, syncTelemetriOnly, mergeMailDurum, loadCache,
 } from '@/lib/ebistr-engine';
 
 // Ortak CORS headers — extension ve cross-origin istekler için
@@ -341,8 +341,13 @@ function handleKurleme() {
 
 // ── /api/ebistr/taglar ────────────────────────────────────────────
 function handleTaglar() {
+  loadCache();
   const cache = getCache();
+  const s = getStatus();
   const raw = cache.taglar || [];
+  if (!raw.length && s.loggedIn && !s.isSyncing) {
+    performSync().catch(console.error);
+  }
   const normalized = raw.map((item: any) => {
     const isYdk = !item.contractor;
     const firma = isYdk ? (item.requestDepartment?.name || '') : (item.contractor || '');

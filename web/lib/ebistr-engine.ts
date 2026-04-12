@@ -194,6 +194,20 @@ export async function performSync(): Promise<void> {
       'Referer': 'https://business.ebistr.com/',
     };
 
+    // Çip / tag verisi hafif — önce çekilir; aksi halde Çip ekranı numune döngüsü bitene kadar boş kalır (Vercel’de “veri gelmedi”).
+    try {
+      const tagData = await fetchWithRetry(`${EBISTR_API}/tag/findAllFirm`, {
+        method: 'POST',
+        headers: { ...commonHeaders, 'Origin': 'https://ebistr.com', 'Referer': 'https://ebistr.com/' },
+        body: JSON.stringify({ requireTotalCount: true, searchOperation: 'contains', searchValue: null, skip: 0, sort: [{ selector: 'department.name', desc: false }], take: 10000, totalSummary: [], userData: {} }),
+      });
+      state.cache.taglar = tagData?.items || tagData?.data || (Array.isArray(tagData) ? tagData : []);
+      console.log(`\n[ebistr] ${state.cache.taglar.length} çip kaydı yüklendi (erken aşama).`);
+      saveCache();
+    } catch (e: any) {
+      console.warn('\n[ebistr] Çip verisi alınamadı (erken):', e.message);
+    }
+
     const commonBody = {
       requireTotalCount: true,
       userData: {},
@@ -258,17 +272,6 @@ export async function performSync(): Promise<void> {
     state.cache.rawNumuneler = samples;
     state.cache.numuneler = samples;
     state.cache.sonGuncelleme = new Date().toISOString();
-
-    // Çip / tag senkronizasyonu
-    try {
-      const tagData = await fetchWithRetry(`${EBISTR_API}/tag/findAllFirm`, {
-        method: 'POST',
-        headers: { ...commonHeaders, 'Origin': 'https://ebistr.com', 'Referer': 'https://ebistr.com/' },
-        body: JSON.stringify({ requireTotalCount: true, searchOperation: 'contains', searchValue: null, skip: 0, sort: [{ selector: 'department.name', desc: false }], take: 10000, totalSummary: [], userData: {} }),
-      });
-      state.cache.taglar = tagData?.items || tagData?.data || (Array.isArray(tagData) ? tagData : []);
-      console.log(`\n[ebistr] ${state.cache.taglar.length} çip kaydı yüklendi.`);
-    } catch (e: any) { console.warn('\n[ebistr] Çip verisi alınamadı:', e.message); }
 
     // Telemetri senkronizasyonu
     try {

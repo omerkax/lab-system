@@ -2,7 +2,7 @@
 const PROXY_URL_KEY = 'proxyUrl';
 const TOKEN_KEY = 'ebistrToken';
 // ⚠️ Buraya Next.js uygulamanızın canlı URL'ini girin:
-const DEFAULT_PROXY = 'https://lab-system-production-fd87.up.railway.app'; // TODO: Next.js app URL ile değiştirin
+const DEFAULT_PROXY = 'https://lab-system-six.vercel.app';
 
 let lastSentToken = '';
 

@@ -4845,10 +4845,19 @@
 
         fetchTaglar(0)
             .then(function(d) {
-                if (!d.ok || !d.taglar || d.taglar.length === 0) {
-                    if (durum) durum.textContent = 'Proxy bağlı değil veya veri yok.';
+                if (!d.ok) {
+                    if (durum) durum.textContent = 'Proxy hatası: ' + (d.err || d.status || 'HTTP');
                     if (btn) btn.disabled = false;
                     toast('Proxy\'den veri gelmedi', 'err');
+                    return;
+                }
+                if (!d.taglar || d.taglar.length === 0) {
+                    if (durum) durum.textContent = 'Çip listesi henüz boş; senkron başlatıldı, 20 sn sonra otomatik yeniden denenecek.';
+                    if (btn) btn.disabled = false;
+                    toast('Çip verisi hazırlanıyor — kısa süre sonra tekrar deneyin', 'amb');
+                    setTimeout(function () {
+                        chipProxyYukle();
+                    }, 20000);
                     return;
                 }
                 var nd = [];
