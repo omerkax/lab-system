@@ -8,6 +8,7 @@ import {
   mergeRaporMaps,
 } from '@/lib/rapor-defter-lookup';
 import { fetchRaporDefteriWithFallback, syncRaporDefteriRemote } from '@/lib/rapor-defteri-remote';
+import { formatRaporDateCell, formatRaporDateForUi, parseRaporDateToIso } from '@/lib/rapor-date';
 
 /* ──────────────────────────────────────────────────────────────────
    Tüm HTML istemci tarafında (useEffect) inject edilir.
@@ -45,12 +46,13 @@ const XL_WIDTHS = [
 // ── Excel column header → iç key eşlemesi ──────────────────────
 function mapRowKeys(row: Record<string, any>): Record<string, string> {
   const s = (v: any) => String(v ?? '').trim();
+  const d = (v: any) => parseRaporDateToIso(v) || '';
   return {
     tip:       s(row['TİP']   || row['TIP']   || row['Tip']   || ''),
     yil:       s(row['YIL']   || row['Yıl']   || ''),
     kod:       s(row['KOD']   || row['Kod']   || ''),
-    alinTarih: s(row['NMN.ALINIŞ TARİHİ'] || row['ALINIŞ TARİHİ'] || row['Alınış Tarihi'] || ''),
-    labTarih:  s(row['LAB.GELİŞ TARİHİ']  || row['Lab Geliş'] || ''),
+    alinTarih: d(row['NMN.ALINIŞ TARİHİ'] || row['ALINIŞ TARİHİ'] || row['Alınış Tarihi'] || ''),
+    labTarih:  d(row['LAB.GELİŞ TARİHİ']  || row['Lab Geliş'] || ''),
     talepEden: s(row['DENEYİ TALEP EDEN']  || row['Talep Eden'] || ''),
     yd:        s(row['YAPI DENETİM']        || row['Yapı Denetim'] || ''),
     sahip:     s(row['YAPI SAHİBİ']         || row['Yapı Sahibi'] || ''),
@@ -71,8 +73,8 @@ function mapRowKeys(row: Record<string, any>): Record<string, string> {
     sinif:     s(row['SINIFI'] || row['SINIF'] || row['Sınıf'] || ''),
     beton:     s(row['BETON'] || row['Beton'] || ''),
     lab:       s(row['LAB.']  || row['Lab']   || ''),
-    deney7:    s(row['DENEY TARİHLERİ (7 GÜNLÜK)']  || row['7 Günlük']  || ''),
-    deney28:   s(row['DENEY TARİHLERİ (28 GÜNLÜK)'] || row['28 Günlük'] || ''),
+    deney7:    d(row['DENEY TARİHLERİ (7 GÜNLÜK)']  || row['7 Günlük']  || ''),
+    deney28:   d(row['DENEY TARİHLERİ (28 GÜNLÜK)'] || row['28 Günlük'] || ''),
     brn7:      s(row['BRN 7'] || ''),
     no7:       s(row['NO']    || ''),
     brn28:     s(row['BRN 28'] || ''),
@@ -84,33 +86,9 @@ function mapRowKeys(row: Record<string, any>): Record<string, string> {
 
 const PAGE_SIZE = 50;
 
-// ── Tarih formatlama ────────────────────────────────────────────
-function fmtD(s: string): string {
-  if (!s) return '';
-  const d = String(s).slice(0, 10);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d.split('-').reverse().join('.');
-  return d || '';
-}
-
-/** HTML date input sadece YYYY-MM-DD kabul eder; Excel/elle girilen GG.AA.YYYY vb. boş görünür. */
+/** HTML date input: yalnızca YYYY-MM-DD; DD/MM/YYYY lib ile (MM/DD yok). */
 function normalizeDateForInput(s: unknown): string {
-  const t = String(s ?? '').trim();
-  if (!t) return '';
-  if (/^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10);
-  const m = t.match(/^(\d{1,2})[./](\d{1,2})[./](\d{2,4})(?:\s|$|[Tt])/);
-  if (m) {
-    const d = parseInt(m[1], 10);
-    const mo = parseInt(m[2], 10);
-    let y = parseInt(m[3], 10);
-    if (y < 100) y += y >= 50 ? 1900 : 2000;
-    if (mo < 1 || mo > 12 || d < 1 || d > 31) return '';
-    const dt = new Date(y, mo - 1, d);
-    if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return '';
-    return `${String(y).padStart(4, '0')}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-  }
-  const parsed = new Date(t);
-  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
-  return '';
+  return parseRaporDateToIso(s) || '';
 }
 
 function modalDateField(
@@ -160,7 +138,10 @@ function renderRaporTable(rows: any[]) {
   const TD = 'padding:6px 8px;font-size:11px;white-space:nowrap;border-bottom:1px solid var(--bdr)';
   const empty = `<span style="color:var(--tx3);font-size:10px;opacity:.5">—</span>`;
   const cv = (v: string, st = '') => v ? `<span${st ? ` style="${st}"` : ''}>${v}</span>` : empty;
-  const dateCell = (v: string) => { const d = fmtD(v); return d ? `<span style="color:var(--tx2)">${d}</span>` : empty; };
+  const dateCell = (v: string) => {
+    const d = formatRaporDateForUi(v);
+    return d ? `<span style="color:var(--tx2)">${d}</span>` : empty;
+  };
 
   const globalBase = safePage * PAGE_SIZE;
   tbody.innerHTML = pageRows.map((r, i) => {
@@ -297,7 +278,11 @@ async function raporPageInit() {
       const buf = await file.arrayBuffer();
       const wb  = w.XLSX.read(buf, { type: 'array' });
       const ws  = wb.Sheets[wb.SheetNames[0]];
-      const rawRows: any[] = w.XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
+      const rawRows: any[] = w.XLSX.utils.sheet_to_json(ws, {
+        defval: '',
+        raw: true,
+        cellDates: true,
+      });
 
       const rows = filterRaporStorageRows(
         rawRows.map(raw => {
@@ -375,9 +360,10 @@ async function raporPageInit() {
     const tum: any[] = w._betonEbistrNumuneler || w.ebistrNumuneler || [];
     const numuneler = tum.filter((n: any) => {
       if (!tarihBas && !tarihBit) return true;
-      const t = (n.alinisDate || n.alinisZamani || '').slice(0, 10);
-      if (tarihBas && t < tarihBas) return false;
-      if (tarihBit && t > tarihBit) return false;
+      const rawT = n.takeDate || n.alinisDate || n.alinisZamani || n.alisTarihi || n.tarih || '';
+      const t = parseRaporDateToIso(rawT) || '';
+      if (tarihBas && (!t || t < tarihBas)) return false;
+      if (tarihBit && (!t || t > tarihBit)) return false;
       return true;
     });
 
@@ -465,7 +451,7 @@ async function raporPageInit() {
         const brnGor = n.brnNo
         ? `<span style="font-family:var(--fm);color:var(--acc2)">${n.brnNo}</span>${n.labReportNo && n.labReportNo !== n.brnNo ? `<br><span style="font-size:10px;color:var(--tx3)">${n.labReportNo}</span>` : ''}`
         : `<span style="color:var(--tx3)">${n.labReportNo || '—'}</span>`;
-      const alinGor = fmtD(n.takeDate || n.alinisDate || n.alisTarihi || n.tarih || '');
+      const alinGor = formatRaporDateCell(n.takeDate || n.alinisDate || n.alisTarihi || n.tarih || '');
       html += `<tr style="border-top:1px solid var(--bdr);${bg}">
           <td style="padding:5px 10px"><input type="checkbox" class="rapor-pending-chk" data-group="${yibf}" data-idx="${i}" data-yibf="${yibf}" checked></td>
           <td style="padding:5px 10px">${brnGor}</td>
@@ -529,7 +515,8 @@ async function raporPageInit() {
 
     const newRows = toAdd.map(({ n, yibf }: { n: any; yibf: string }) => {
       const info = findRaporInfo(yibf === '__YIBFSIZ__' || yibf.startsWith('__BRN__') ? '' : yibf, existingRows);
-      const alinTarih = (n.takeDate || n.alinisDate || n.alisTarihi || n.tarih || '').slice(0, 10);
+      const alinTarih =
+        parseRaporDateToIso(n.takeDate || n.alinisDate || n.alisTarihi || n.tarih || '') || '';
       return {
         tip:'B', yil: new Date().getFullYear().toString(), kod:'',
         alinTarih, labTarih:'', talepEden:'',

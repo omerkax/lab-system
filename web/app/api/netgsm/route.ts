@@ -8,19 +8,29 @@ import { getOutboundIpv4 } from '@/lib/server-egress-ip';
  * Sabit IP (NetGSM whitelist): Vercel çıkış IP’si değişebilir. `NETGSM_RELAY_URL` tanımlıysa
  * istek NetGSM yerine bu adrese aynı query ile gider (ör. `https://sunucunuz/netgsm_proxy.php`).
  * NetGSM panelinde yalnızca köprü sunucusunun IP’sini tanımlayın.
+ *
+ * Köprü HTTP hata (403 vb.) veya ağ hatası verirse aynı istek doğrudan NetGSM’e
+ * yedeklenir (`X-Lab-Netgsm-Relay-Fallback: 1`, `X-Lab-Netgsm-Via: direct`).
  */
 const cors = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
   /** Bakiye yanıtında X-Lab-Egress-Ipv4 okunabilsin (kod 30 teşhisi) */
-  'Access-Control-Expose-Headers': 'X-Lab-Egress-Ipv4, X-Lab-Netgsm-Via',
+  'Access-Control-Expose-Headers':
+    'X-Lab-Egress-Ipv4, X-Lab-Netgsm-Via, X-Lab-Netgsm-Relay-Fallback',
 };
 
 const plain = { ...cors, 'Content-Type': 'text/plain; charset=utf-8' };
 
-function withVia(headers: Record<string, string>, via: 'relay' | 'direct'): Record<string, string> {
-  return { ...headers, 'X-Lab-Netgsm-Via': via };
+function withVia(
+  headers: Record<string, string>,
+  via: 'relay' | 'direct',
+  relayFallback?: boolean
+): Record<string, string> {
+  const h: Record<string, string> = { ...headers, 'X-Lab-Netgsm-Via': via };
+  if (relayFallback) h['X-Lab-Netgsm-Relay-Fallback'] = '1';
+  return h;
 }
 
 function xmlEscape(s: string) {
@@ -41,6 +51,7 @@ export async function GET(req: NextRequest) {
   }
 
   const relayBase = (process.env.NETGSM_RELAY_URL || '').trim();
+  let relayFallback = false;
   if (relayBase) {
     const search = req.nextUrl.search || '';
     const target =
@@ -56,14 +67,12 @@ export async function GET(req: NextRequest) {
         signal: AbortSignal.timeout(30000),
       });
       const text = await res.text();
-      const h = withVia({ ...plain }, 'relay');
-      if (!res.ok) {
-        return new NextResponse(`ERROR|RELAY_HTTP_${res.status}`, { status: 200, headers: h });
+      if (res.ok) {
+        return new NextResponse(text, { headers: withVia({ ...plain }, 'relay') });
       }
-      return new NextResponse(text, { headers: h });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      return new NextResponse(`ERROR|RELAY:${msg.slice(0, 120)}`, { status: 200, headers: withVia({ ...plain }, 'relay') });
+      relayFallback = true;
+    } catch {
+      relayFallback = true;
     }
   }
 
@@ -89,9 +98,9 @@ export async function GET(req: NextRequest) {
     const code = parts[0];
     if (code === '00' || code === '01' || code === '02') {
       const id = parts[1] != null ? parts[1].trim() : 'NO_ID';
-      return new NextResponse(`SUCCESS|${id}`, { headers: withVia({ ...plain }, 'direct') });
+      return new NextResponse(`SUCCESS|${id}`, { headers: withVia({ ...plain }, 'direct', relayFallback) });
     }
-    const sendHeaders = withVia({ ...plain }, 'direct');
+    const sendHeaders = withVia({ ...plain }, 'direct', relayFallback);
     if (code === '30' || raw.includes(' 30 ') || /^30\b/.test(raw)) {
       const eg = await getOutboundIpv4();
       if (eg?.ip) sendHeaders['X-Lab-Egress-Ipv4'] = eg.ip;
@@ -115,7 +124,9 @@ export async function GET(req: NextRequest) {
     const m = txt.match(/(?:^|[^\d])(11|12|13|14|0|1|2|3|4)(?:[^\d]|$)/);
     if (m) statusCode = m[1];
     if (statusCode === null || statusCode === '') statusCode = 'NA';
-    return new NextResponse(`STATUS|${statusCode}|${txt}`, { headers: withVia({ ...plain }, 'direct') });
+    return new NextResponse(`STATUS|${statusCode}|${txt}`, {
+      headers: withVia({ ...plain }, 'direct', relayFallback),
+    });
   }
 
   const xml =
@@ -132,7 +143,7 @@ export async function GET(req: NextRequest) {
     cache: 'no-store',
   });
   const text = (await res.text()).trim();
-  const balanceHeaders = withVia({ ...plain }, 'direct');
+  const balanceHeaders = withVia({ ...plain }, 'direct', relayFallback);
   if (/<code>\s*30\s*<\/code>/i.test(text) || /<code>30<\/code>/i.test(text)) {
     const eg = await getOutboundIpv4();
     if (eg?.ip) balanceHeaders['X-Lab-Egress-Ipv4'] = eg.ip;

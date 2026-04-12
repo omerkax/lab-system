@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 import { DEFAULT_ADMIN_ROLE, readLabSession, roleAllowsModuleEdit } from '@/lib/lab-auth';
 import { isLikelyAdaParsel, numuneMatchesYibfQuery } from '@/lib/yibf-utils';
 import { createRaporDefterYibfLookup } from '@/lib/rapor-defter-lookup';
+import { parseRaporDateToIso } from '@/lib/rapor-date';
 import { fetchRaporDefteriWithFallback } from '@/lib/rapor-defteri-remote';
 import { ebistrNumuneRowKey } from '@/lib/ebistr-numune-key';
 import {
@@ -910,29 +911,10 @@ async function betonListeYukle() {
   }
 }
 
-/**
- * Alınış günü — EBİSTR tablodaki `fmtD` ile aynı: önce `String(takeDate).slice(0,10)` (yyyy-mm-dd).
- * Böylece döküm <input type="date"> ile EBİSTR'de gördüğünüz gün birebir örtüşür.
- */
+/** Alınış günü YYYY-MM-DD — DD/MM/YYYY (defter) ile uyumlu; `new Date(string)` kullanılmaz. */
 function numuneAlinisGunFromRaw(raw: unknown): string | null {
-  const s = String(raw ?? '').trim();
-  if (!s) return null;
-  const trCsv = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s|$|[Tt])/);
-  if (trCsv) {
-    const d = parseInt(trCsv[1], 10);
-    const mo = parseInt(trCsv[2], 10);
-    const y = parseInt(trCsv[3], 10);
-    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
-      return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    }
-  }
-  const slash = s.match(/^(\d{4})\/(\d{2})\/(\d{2})/);
-  if (slash) return `${slash[1]}-${slash[2]}-${slash[3]}`;
-  const head = s.slice(0, 10);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(head)) return head;
-  const t = new Date(s);
-  if (!Number.isNaN(t.getTime())) return localDateISO(t);
-  return null;
+  const iso = parseRaporDateToIso(raw);
+  return iso || null;
 }
 
 /** Bu YİBF + alınış alanlarından biri döküm gününe denk geliyor mu */
