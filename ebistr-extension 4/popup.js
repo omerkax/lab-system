@@ -1,4 +1,5 @@
-const DEFAULT_PROXY = ''; // Popup'ta boş kalırsa background.js'deki DEFAULT_PROXY devreye girer
+/** Boş depolama: canlı lab (background ile aynı kök) */
+const DEFAULT_PROXY = 'https://alibeyerp.omerkaya.com.tr';
 
 
 document.addEventListener('DOMContentLoaded', function () {
@@ -18,7 +19,7 @@ document.addEventListener('DOMContentLoaded', function () {
     tBit.addEventListener('change', saveDates);
 
     document.getElementById('btnSyncToken').addEventListener('click', function() {
-        chrome.runtime.sendMessage({ action: 'syncToken' }, function(r) {
+        chrome.runtime.sendMessage({ action: 'syncToken', force: true }, function(r) {
             if (r && r.ok) {
                 alert('Giriş anahtarı Proxy\'ye gönderildi.');
                 proxyKontrol(document.getElementById('proxyUrl').value || DEFAULT_PROXY);

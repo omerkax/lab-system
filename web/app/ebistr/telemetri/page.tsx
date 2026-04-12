@@ -262,7 +262,7 @@ export default function TelemetriPage() {
   const initDone = useRef(false);
 
   useEffect(() => {
-    void ensureEbistrScript('/ebistr.js?v=20260412-vercel-data-api');
+    void ensureEbistrScript('/ebistr.js?v=20260413-ebistr-extension-v11');
   }, []);
 
   const veriCek = useCallback(async () => {

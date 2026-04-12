@@ -66,6 +66,11 @@ const HTML = `
     </div>
   </div>
 
+  <div id="ebistr-sunucu-json-durum" style="display:none;margin:12px 0;padding:12px 14px;background:var(--sur2);border:1px solid var(--bdr);border-radius:12px;font-size:12px">
+    <div id="ebistr-sunucu-json-baslik" style="font-weight:700;margin-bottom:8px;color:var(--tx2)"></div>
+    <pre id="ebistr-sunucu-json-pre" style="margin:0;white-space:pre-wrap;word-break:break-word;max-height:min(50vh,360px);overflow:auto;font-family:ui-monospace,monospace;font-size:11px;color:var(--tx3)"></pre>
+  </div>
+
   <!-- GELİŞMİŞ FİLTRE -->
   <div class="ebistr-adv-panel" id="ebistr-adv-panel">
     <div class="ebistr-adv-item">
@@ -383,7 +388,7 @@ function EbistrInner() {
       }
     };
 
-    void ensureEbistrScript('/ebistr.js?v=20260412-vercel-data-api').then(() => {
+    void ensureEbistrScript('/ebistr.js?v=20260413-ebistr-extension-v11').then(() => {
       runInit();
     });
   }, [params]);

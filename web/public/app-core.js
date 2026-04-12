@@ -14,6 +14,27 @@ function fsUrl(collection, docId) {
 function fsHeaders() {
     return { "Content-Type": "application/json" };
 }
+
+/** 401/403: genelde API anahtarı referrer kısıtı veya Firestore kuralları — sessiz boş dizi kullanıcıyı yanıltıyor */
+function _fsNotifyAccessDenied(r, verb, collection) {
+    var st = r && r.status;
+    if (st !== 401 && st !== 403 && st !== 400) return;
+    if (typeof window !== 'undefined' && window.__fsAccessDeniedNotified) return;
+    if (typeof window !== 'undefined') window.__fsAccessDeniedNotified = true;
+    try {
+        r.clone().text().then(function (t) {
+            console.error('[Firestore ' + verb + ' ' + (collection || '') + '] HTTP ' + st, t && t.slice ? t.slice(0, 500) : t);
+        });
+    } catch (e) {}
+    var origin = (typeof location !== 'undefined' && location.origin) ? location.origin : '';
+    var ref = origin ? origin + '/*' : 'https://SIZIN-ALAN-ADINIZ/*';
+    var msg = 'Firestore reddetti (HTTP ' + st + '). Google Cloud Console → APIs & Services → Credentials → tarayıcı API anahtarınız → Application restrictions: HTTP referrer’a ekleyin: ' + ref + ' — Firebase → Firestore → Rules: okuma/yazma izni (REST ile API anahtarı kullanılıyor; kimlik doğrulamasız kurallar gerekir).';
+    if (typeof toast === 'function') {
+        setTimeout(function () { toast(msg, 'err'); }, 200);
+    } else if (typeof window !== 'undefined' && window.console) {
+        console.error(msg);
+    }
+}
 function fsVal(v) {
     if (!v) return null;
     if (v.stringValue !== undefined) return v.stringValue;
@@ -71,7 +92,11 @@ function fsGetDoc(collection, docId, cb) {
         return fetch(url, { headers: fsHeaders() })
             .then(function (r) {
                 if (r.status === 404) return null;
-                if (!r.ok) { console.warn('fsGetDoc hata ' + r.status); return null; }
+                if (!r.ok) {
+                    _fsNotifyAccessDenied(r, 'GET doc', collection + '/' + docId);
+                    console.warn('fsGetDoc hata ' + r.status);
+                    return null;
+                }
                 return r.json();
             })
             .then(function (data) {
@@ -98,7 +123,11 @@ function fsGet(collection, pageToken, accumulated, _attempt) {
                         setTimeout(function () { fsGet(collection, pageToken, accumulated, _attempt + 1).then(resolve); }, delay);
                     });
                 }
-                if (!r.ok) { console.warn('fsGet hata ' + r.status); return Promise.resolve(accumulated); }
+                if (!r.ok) {
+                    _fsNotifyAccessDenied(r, 'GET list', collection);
+                    console.warn('fsGet hata ' + r.status);
+                    return Promise.resolve(accumulated);
+                }
                 return r.json().then(function (data) {
                     if (!data) return accumulated;
                     if (data.documents && data.documents.length) accumulated = accumulated.concat(data.documents.map(fsDoc2obj));
@@ -118,7 +147,10 @@ function fsSet(collection, docId, obj) {
         headers: fsHeaders(),
         body: JSON.stringify({ fields: fields })
     }).then(function (r) {
-        if (!r.ok) console.warn('fsSet hata ' + r.status);
+        if (!r.ok) {
+            _fsNotifyAccessDenied(r, 'PATCH', collection + '/' + docId);
+            console.warn('fsSet hata ' + r.status);
+        }
     }).catch(function (e) { console.error('fsSet hata:', e); });
 }
 
@@ -126,7 +158,10 @@ function fsDel(collection, docId) {
     return fetch(fsUrl(collection, docId) + "?key=" + DB_KEY, {
         method: "DELETE", headers: fsHeaders()
     }).then(function (r) {
-        if (!r.ok) console.warn('fsDel hata ' + r.status);
+        if (!r.ok) {
+            _fsNotifyAccessDenied(r, 'DELETE', collection + '/' + docId);
+            console.warn('fsDel hata ' + r.status);
+        }
     }).catch(function (e) { console.error('fsDel hata:', e); });
 }
 

@@ -48,15 +48,21 @@ function ebistrProxyUrlKayitKullanilabilirMi(stored) {
     return true;
 }
 
-/** layout: window.__LAB_BASE_URL__ (NEXT_PUBLIC_LAB_BASE_URL) veya sayfa origin — netgsm_proxy.php ile aynı kök */
+/** layout / env ile aynı kök; eski *.vercel.app env iken sayfa özel domaindeyse location.origin */
 function _ebistrProxyDefaultBase() {
     if (typeof window === 'undefined') return '';
-    var env = window.__LAB_BASE_URL__;
-    if (env != null && String(env).trim() !== '') {
-        var e = String(env).trim().replace(/\/+$/, '');
-        if (ebistrProxyUrlKayitKullanilabilirMi(e)) return e;
-    }
-    return (window.location.origin || '').replace(/\/+$/, '');
+    var loc = (window.location.origin || '').replace(/\/+$/, '');
+    var raw = (window.__LAB_BASE_URL__ != null && String(window.__LAB_BASE_URL__).trim() !== '')
+        ? String(window.__LAB_BASE_URL__).trim().replace(/\/+$/, '')
+        : '';
+    if (!raw) return loc;
+    try {
+        var envHost = new URL(raw).hostname.toLowerCase();
+        var locHost = (window.location.hostname || '').toLowerCase();
+        if (/\.vercel\.app$/i.test(envHost) && !/\.vercel\.app$/i.test(locHost)) return loc;
+    } catch (e) {}
+    if (ebistrProxyUrlKayitKullanilabilirMi(raw)) return raw;
+    return loc;
 }
 
 function ebistrProxyUrlVarsayilanDoldur() {
@@ -64,9 +70,45 @@ function ebistrProxyUrlVarsayilanDoldur() {
     if (proxyU && !proxyU.value.trim()) proxyU.value = _ebistrProxyDefaultBase();
 }
 
+/**
+ * Firestore’ta kalan eski proxy (Node ebistr-proxy / başka Vercel URL) farklı hostta 401 üretir.
+ * Üretimde sayfa host’u ile eşleşmeyen lab kökünü yok sayıp açık sayfanın origin’ini kullanır (localhost geliştirme hariç).
+ */
+function ebistrLabBaseSameOriginCoerce(raw) {
+    if (typeof window === 'undefined' || !window.location) {
+        return raw && String(raw).trim() ? String(raw).trim().replace(/\/+$/, '') : _ebistrProxyDefaultBase();
+    }
+    var loc = window.location;
+    var locOrigin = (loc.origin || '').replace(/\/+$/, '');
+    var locHost = (loc.hostname || '').toLowerCase();
+    var sayfaLocal = locHost === 'localhost' || locHost === '127.0.0.1';
+    var base = raw != null && String(raw).trim() !== '' ? String(raw).trim().replace(/\/+$/, '') : '';
+    if (!base) return _ebistrProxyDefaultBase();
+    try {
+        var uh = new URL(base).hostname.toLowerCase();
+        if (!sayfaLocal && uh !== locHost) return locOrigin;
+    } catch (e) {
+        return locOrigin;
+    }
+    return base;
+}
+
+function ebistrSavedProxyMatchesPageHost(stored) {
+    if (!stored || String(stored).trim() === '') return true;
+    if (typeof window === 'undefined' || !window.location) return true;
+    var h = (window.location.hostname || '').toLowerCase();
+    if (h === 'localhost' || h === '127.0.0.1') return true;
+    try {
+        return new URL(String(stored).trim()).hostname.toLowerCase() === h;
+    } catch (e) {
+        return false;
+    }
+}
+
 var EBISTR_PROXY = function () {
     var inp = document.getElementById('ebistr-proxy-url-inp');
-    return (inp && inp.value.trim()) || _ebistrProxyDefaultBase();
+    var raw = (inp && inp.value.trim()) || '';
+    return ebistrLabBaseSameOriginCoerce(raw || null);
 };
 
 /**
@@ -127,11 +169,21 @@ window.ebistrBusinessGirisAc = ebistrBusinessGirisAc;
 function ebistrTokenSonrasiBaglan() {
     ebistrProxyKontrol();
     if (typeof ebistrVeriGuncelle === 'function') ebistrVeriGuncelle();
-    fetch(EBISTR_PROXY() + '/api/ebistr/status')
+    var base = EBISTR_PROXY();
+    function maybeSync(d) {
+        if (d.loggedIn) fetch(base + '/api/ebistr/sync-now').catch(function () {});
+    }
+    fetch(base + '/api/ebistr/status')
         .then(function (r) { return r.json(); })
         .then(function (d) {
-            if (d.loggedIn) {
-                fetch(EBISTR_PROXY() + '/api/ebistr/sync-now').catch(function () {});
+            maybeSync(d);
+            if (!d.loggedIn) {
+                setTimeout(function () {
+                    fetch(base + '/api/ebistr/status')
+                        .then(function (r2) { return r2.json(); })
+                        .then(function (d2) { maybeSync(d2); })
+                        .catch(function () {});
+                }, 3000);
             }
         })
         .catch(function () {});
@@ -182,21 +234,19 @@ function ebistrVarsayilanGunlukKirimFiltresi() {
 function ebistrInit() {
     ebistrProxyKontrol();
     ebistrAyarYukle();
-    // Tabloyu hemen göster (yükleniyor mesajıyla) — boş ekran olmasın; varsayılan: bugünün kırım tarihi (tümü değil)
     ebistrVarsayilanGunlukKirimFiltresi();
-    ebistrFiltrele();
-    // Firestore'dan önbellekli verileri çek (hızlı başlangıç)
-    fbPullEBISTR();
-    // Sayfa açılır açılmaz proxy'den güncel veriyi çek (Firestore'u beklemeden)
-    setTimeout(function() { _ebistrSilentRefresh(); }, 500);
-    // Saat başından 1-2 dk sonra (XX:02) EBİSTR veri çekimini planla
-    _scheduleEbistrHourlyPull();
-    // Her 5 dakikada sessiz proxy güncelleme (önbellek tazelemesi)
-    if (!_ebistrAutoPollTimer) {
-        _ebistrAutoPollTimer = setInterval(function() {
-            _ebistrSilentRefresh();
-        }, 5 * 60 * 1000);
-    }
+    // Önce sunucudaki ebistr-numuneler.json → ekran bomboş kalmasın; canlı EBİSTR ayrıca gelir
+    _ebistrHydrateFromServerJson(function() {
+        ebistrFiltrele();
+        fbPullEBISTR();
+        setTimeout(function() { _ebistrSilentRefresh(); }, 1200);
+        _scheduleEbistrHourlyPull();
+        if (!_ebistrAutoPollTimer) {
+            _ebistrAutoPollTimer = setInterval(function() {
+                _ebistrSilentRefresh();
+            }, 5 * 60 * 1000);
+        }
+    });
 }
 
 // Her saat XX:02'de EBİSTR verisini çek (EBİSTR kendi verilerini :00'da günceller)
@@ -211,15 +261,123 @@ function _scheduleEbistrHourlyPull() {
     }, next - now);
 }
 
+/** Sunucudaki kayıtlı JSON / canlı hata metnini gösterir (analiz sayfası #ebistr-sunucu-json-durum). */
+function _ebistrGosterJsonDurumu(opts) {
+    var wrap = document.getElementById('ebistr-sunucu-json-durum');
+    var pre = document.getElementById('ebistr-sunucu-json-pre');
+    var title = document.getElementById('ebistr-sunucu-json-baslik');
+    if (!wrap || !pre || !title) return;
+    if (opts && opts.clear) {
+        wrap.style.display = 'none';
+        pre.textContent = '';
+        title.textContent = '';
+        return;
+    }
+    wrap.style.display = '';
+    title.textContent = (opts && opts.title) || '';
+    pre.textContent = (opts && opts.body) || '';
+}
+
+function _ebistrCanliBasariliPanel() {
+    _ebistrGosterJsonDurumu({ clear: true });
+}
+
+/** Canlı EBİSTR çekimi başarısız — tabloyu silme; yanıt + varsa önbellek JSON özeti. */
+function _ebistrLiveFetchBasarisiz(d, ctx) {
+    var title = 'EBİSTR canlı veri alınamadı' + (ctx ? ' (' + ctx + ')' : '');
+    var parts = [];
+    if (d && typeof d === 'object') parts.push('Sunucu yanıtı (JSON):\n' + JSON.stringify(d, null, 2));
+    else parts.push(String(d != null ? d : ''));
+    if (ebistrNumuneler && ebistrNumuneler.length) {
+        parts.push(
+            '\n— Şu an bellekteki numuneler (özet, ilk 40):\n' +
+                JSON.stringify(ebistrNumuneler.slice(0, 40), null, 2)
+        );
+        if (ebistrNumuneler.length > 40) parts.push('\n… +' + (ebistrNumuneler.length - 40) + ' kayıt (tabloda).');
+    } else {
+        parts.push('\n— Bellekte numune yok. Sayfa yüklenirken sunucudaki `ebistr-numuneler.json` denendi; dosya boş veya yok olabilir.');
+    }
+    _ebistrGosterJsonDurumu({ title: title, body: parts.join('\n') });
+    var info = document.getElementById('ebistr-csv-info');
+    if (info) info.textContent = '⚠ Canlı EBİSTR başarısız — kayıtlı önbellek kullanılıyor veya veri yok. Ayrıntı aşağıda.';
+    var dot = document.getElementById('ebistr-csv-status-dot');
+    if (dot) dot.style.background = 'var(--amb)';
+}
+
+/** GET /api/data — diske yazılmış numune dizisi; canlıdan önce göster. */
+function _ebistrHydrateFromServerJson(done) {
+    fetch(EBISTR_PROXY() + '/api/data?type=ebistr-numuneler&latest=1&_=' + Date.now(), { cache: 'no-store' })
+        .then(function (r) {
+            return r.json();
+        })
+        .then(function (j) {
+            var badge = document.getElementById('ebistr-csv-info-badge');
+            var dot = document.getElementById('ebistr-csv-status-dot');
+            var info = document.getElementById('ebistr-csv-info');
+            if (!j.ok || !Array.isArray(j.data)) {
+                if (info) info.textContent = 'Kayıtlı JSON okunamadı — EBİSTR ile çekim deneyin.';
+                if (badge) badge.className = 'ebistr-status-badge';
+                if (dot) dot.style.background = 'var(--tx3)';
+                _ebistrGosterJsonDurumu({ title: 'Sunucu dosyası / yanıt', body: JSON.stringify(j, null, 2) });
+                if (typeof done === 'function') done(false, j);
+                return;
+            }
+            if (j.data.length === 0) {
+                if (info) info.textContent = 'Kayıtlı dosya boş. EBİSTR ile veri çekin.';
+                if (badge) badge.className = 'ebistr-status-badge';
+                if (dot) dot.style.background = 'var(--tx3)';
+                _ebistrGosterJsonDurumu({ title: 'ebistr-numuneler.json boş', body: JSON.stringify(j, null, 2) });
+                if (typeof done === 'function') done(false, j);
+                return;
+            }
+            ebistrNumuneler = j.data;
+            window._ebistrLastServerJsonFile = j.file || 'ebistr-numuneler.json';
+            ebistrYdTespit(ebistrNumuneler);
+            ebistrAnalizEt({ silent: true });
+            if (badge) badge.className = 'ebistr-status-badge ready';
+            if (dot) dot.style.background = 'var(--amb)';
+            if (info)
+                info.textContent =
+                    ebistrNumuneler.length +
+                    ' numune (sunucu dosyası: ' +
+                    (j.file || 'ebistr-numuneler.json') +
+                    '). Canlı EBİSTR ile güncelleyin.';
+            var lim = 60;
+            var snip = ebistrNumuneler.slice(0, lim);
+            var tail = ebistrNumuneler.length > lim ? '\n\n… +' + (ebistrNumuneler.length - lim) + ' kayıt (tabloda tam liste)' : '';
+            _ebistrGosterJsonDurumu({
+                title: 'Kayıtlı numune JSON (sunucu)',
+                body: 'Dosya: ' + (j.file || '') + '\nKayıt: ' + ebistrNumuneler.length + '\n\n' + JSON.stringify(snip, null, 2) + tail,
+            });
+            if (typeof done === 'function') done(true, j);
+        })
+        .catch(function (e) {
+            _ebistrGosterJsonDurumu({
+                title: 'Önbellek JSON yüklenemedi (ağ)',
+                body: String((e && e.message) || e),
+            });
+            if (typeof done === 'function') done(false, null);
+        });
+}
+
 // Proxy'den sessizce veri güncelle (toast yok)
 function _ebistrSilentRefresh() {
     ebistrPostNumunelerJson({ filtre: 'hepsi' }, 20)
     .then(function(d) {
-        if (!d.ok || !d.numuneler) return;
+        if (!d.ok) {
+            _ebistrLiveFetchBasarisiz(d, 'oto-yenileme');
+            return;
+        }
+        if (!Array.isArray(d.numuneler)) return;
         ebistrNumuneler = d.numuneler;
+        _ebistrCanliBasariliPanel();
         _ebistrMailDurumSunucudan(d);
         var syncTime = d.lastSync ? new Date(d.lastSync).toLocaleString('tr-TR') : new Date().toLocaleString('tr-TR');
         var info = document.getElementById('ebistr-csv-info');
+        var badgeOk = document.getElementById('ebistr-csv-info-badge');
+        var dotOk = document.getElementById('ebistr-csv-status-dot');
+        if (badgeOk) badgeOk.className = 'ebistr-status-badge ready';
+        if (dotOk) dotOk.style.background = 'var(--grn)';
         if (info) info.textContent = ebistrNumuneler.length + ' numune hazır. (Son Senk: ' + syncTime + ')';
         // Tüm "son güncelleme" etiketlerini güncelle
         document.querySelectorAll('.ebistr-sync-time').forEach(function(el) {
@@ -231,12 +389,14 @@ function _ebistrSilentRefresh() {
         fbSyncEBISTR(ebistrNumuneler, ebistrAnalizler);
         // Görünür sayfanın UI'ını otomatik güncelle
         if (typeof ebistrYdTespit === 'function') ebistrYdTespit(ebistrNumuneler);
-        if (typeof ebistrAnalizEt === 'function') ebistrAnalizEt();
+        if (typeof ebistrAnalizEt === 'function') ebistrAnalizEt({ silent: true });
         if (typeof ebistrYaklasanYenile === 'function') ebistrYaklasanYenile();
         // Diğer sayfalar için event gönder
         document.dispatchEvent(new CustomEvent('ebistr:refreshed', { detail: { time: syncTime, count: ebistrNumuneler.length } }));
     })
-    .catch(function() {}); // sessiz hata — proxy kapalıysa geçilir
+    .catch(function(e) {
+        _ebistrLiveFetchBasarisiz({ ok: false, err: e && e.message ? e.message : 'Ağ hatası' }, 'oto-yenileme');
+    });
 }
 
 // ── Sunucu önbelleği (JSON) — numuneler + mailDurum paylaşımlı; localStorage kullanılmaz ──
@@ -266,7 +426,7 @@ function fbPullEBISTR() {
             if (d && d.ok && d.mailDurum) _ebistrMailDurum = d.mailDurum;
             if (ebistrNumuneler && ebistrNumuneler.length) {
                 ebistrYdTespit(ebistrNumuneler);
-                ebistrAnalizEt();
+                ebistrAnalizEt({ silent: true });
             }
         })
         .catch(function() {});
@@ -277,12 +437,28 @@ function ebistrProxyKontrol() {
     var dot  = document.getElementById('ebistr-proxy-dot');
     var lbl  = document.getElementById('ebistr-proxy-lbl');
     var bar  = document.getElementById('ebistr-proxy-bar-wrap');
-    fetch(EBISTR_PROXY() + '/api/ebistr/status')
+    function apply(d) {
+        if (dot) { dot.className = 'ebistr-proxy-dot ' + (d.loggedIn ? 'on' : ''); }
+        if (bar) { bar.className = 'ebistr-proxy-bar ' + (d.loggedIn ? 'ok' : ''); }
+        if (lbl) {
+            lbl.textContent = d.loggedIn
+                ? 'Proxy bağlı — Token aktif'
+                : 'Giriş bekleniyor — EBİSTR sekmesini yenileyin veya eklenti (v1.1+) ile bu sayfayı bir kez yenileyin';
+        }
+    }
+    var url = EBISTR_PROXY() + '/api/ebistr/status';
+    fetch(url)
         .then(function (r) { return r.json(); })
         .then(function (d) {
-            if (dot) { dot.className = 'ebistr-proxy-dot ' + (d.loggedIn ? 'on' : ''); }
-            if (bar) { bar.className = 'ebistr-proxy-bar ' + (d.loggedIn ? 'ok' : ''); }
-            if (lbl) lbl.textContent = d.loggedIn ? 'Proxy bağlı — Token aktif' : 'Proxy bağlı — Giriş bekleniyor';
+            apply(d);
+            if (!d.loggedIn) {
+                setTimeout(function () {
+                    fetch(url)
+                        .then(function (r2) { return r2.json(); })
+                        .then(function (d2) { apply(d2); })
+                        .catch(function () {});
+                }, 2800);
+            }
         })
         .catch(function () {
             if (dot) dot.className = 'ebistr-proxy-dot err';
@@ -348,8 +524,18 @@ function ebistrVeriGuncelle() {
     // Filtre yok: tüm hafızayı çek (202 ilk sync → otomatik yeniden dene)
     ebistrPostNumunelerJson({ filtre: 'hepsi' }, 32)
     .then(function(d) {
-        if (!d.ok) { toast(d.err || 'Hata oluştu', 'err'); if (info) info.textContent = '❌ ' + (d.err || 'Hata'); return; }
-        ebistrNumuneler = d.numuneler || [];
+        if (!d.ok) {
+            if (typeof toast === 'function') toast(d.err || 'Hata oluştu', 'err');
+            if (info) info.textContent = '❌ ' + (d.err || 'Hata');
+            _ebistrLiveFetchBasarisiz(d, 'Verileri Güncelle');
+            return;
+        }
+        if (!Array.isArray(d.numuneler)) {
+            _ebistrLiveFetchBasarisiz({ ok: false, err: 'numuneler dizisi yok' }, 'Verileri Güncelle');
+            return;
+        }
+        ebistrNumuneler = d.numuneler;
+        _ebistrCanliBasariliPanel();
         _ebistrMailDurumSunucudan(d);
         var syncTime = d.lastSync ? new Date(d.lastSync).toLocaleString('tr-TR') : '—';
         var badge = document.getElementById('ebistr-csv-info-badge');
@@ -365,7 +551,8 @@ function ebistrVeriGuncelle() {
     .catch(function(e) {
         if (info) info.textContent = '❌ Proxy bağlantısı yok';
         if (dot) dot.style.background = 'var(--red)';
-        toast('Proxy bağlantı hatası: ' + e.message, 'err');
+        if (typeof toast === 'function') toast('Proxy bağlantı hatası: ' + e.message, 'err');
+        _ebistrLiveFetchBasarisiz({ ok: false, err: e && e.message ? e.message : 'Ağ' }, 'Verileri Güncelle');
     });
 }
 
@@ -410,10 +597,16 @@ function _ebistrFetch(bas, bit) {
     .then(function(d) {
         if (!d.ok) {
             if (info) info.textContent = '⌛ ' + (d.err || 'Bekleniyor...');
-            toast(d.err || 'Sunucu hatası', 'amb');
+            if (typeof toast === 'function') toast(d.err || 'Sunucu hatası', 'amb');
+            _ebistrLiveFetchBasarisiz(d, 'tarih aralığı');
             return;
         }
-        ebistrNumuneler = d.numuneler || [];
+        if (!Array.isArray(d.numuneler)) {
+            _ebistrLiveFetchBasarisiz({ ok: false, err: 'numuneler dizisi yok' }, 'tarih aralığı');
+            return;
+        }
+        ebistrNumuneler = d.numuneler;
+        _ebistrCanliBasariliPanel();
         _ebistrMailDurumSunucudan(d);
         var syncTime = d.lastSync ? new Date(d.lastSync).toLocaleString('tr-TR') : '—';
         if (badge) badge.className = 'ebistr-status-badge ready';
@@ -430,7 +623,8 @@ function _ebistrFetch(bas, bit) {
         if (info) info.textContent = '❌ Proxy bağlantı hatası';
         if (badge) badge.className = 'ebistr-status-badge';
         if (dot) dot.style.background = 'var(--red)';
-        toast('Proxy bağlantı hatası: ' + err.message, 'err');
+        if (typeof toast === 'function') toast('Proxy bağlantı hatası: ' + err.message, 'err');
+        _ebistrLiveFetchBasarisiz({ ok: false, err: err && err.message ? err.message : 'Ağ' }, 'tarih aralığı');
     });
 }
 
@@ -524,8 +718,12 @@ function ebistrCsvSatirParse(satir, sep) {
 }
 
 // ── ANALİZ ET ─────────────────────────────────────────────────────
-function ebistrAnalizEt() {
-    if (!ebistrNumuneler.length) { toast('Önce "Verileri Güncelle" ile veri çekin', 'err'); return; }
+function ebistrAnalizEt(opts) {
+    var silent = opts && opts.silent === true;
+    if (!ebistrNumuneler.length) {
+        if (!silent && typeof toast === 'function') toast('Önce "Verileri Güncelle" ile veri çekin', 'err');
+        return;
+    }
 
     // Önce "hesaplanıyor" yaz, tarayıcının render etmesine izin ver
     var tbody = document.getElementById('ebistr-tbody');
@@ -603,7 +801,7 @@ function ebistrAnalizEt() {
         var badge = document.getElementById('ebistrBadge');
         if (badge) { badge.textContent = uyg; badge.style.display = uyg > 0 ? '' : 'none'; }
 
-        toast('Analiz tamamlandı: ' + ebistrAnalizler.length + ' rapor hazır', 'ok');
+        if (!silent && typeof toast === 'function') toast('Analiz tamamlandı: ' + ebistrAnalizler.length + ' rapor hazır', 'ok');
     }, 30);
 }
 
@@ -1584,7 +1782,7 @@ function _ebistrAyarUygula(kaydedilen) {
     if (smtpU  && kaydedilen.smtpUser)  smtpU.value  = kaydedilen.smtpUser;
     if (smtpP  && kaydedilen.smtpPass)  smtpP.value  = kaydedilen.smtpPass;
     if (smtpC  && kaydedilen.smtpCc)    smtpC.value  = kaydedilen.smtpCc;
-    if (proxyU && kaydedilen.proxyUrl && ebistrProxyUrlKayitKullanilabilirMi(kaydedilen.proxyUrl)) {
+    if (proxyU && kaydedilen.proxyUrl && ebistrProxyUrlKayitKullanilabilirMi(kaydedilen.proxyUrl) && ebistrSavedProxyMatchesPageHost(kaydedilen.proxyUrl)) {
         proxyU.value = kaydedilen.proxyUrl;
     }
     if (mailK  && kaydedilen.mailKosul) mailK.value  = kaydedilen.mailKosul;

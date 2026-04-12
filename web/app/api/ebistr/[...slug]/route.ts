@@ -3,6 +3,7 @@ import { waitUntil } from '@vercel/functions';
 import {
   addToken, clearTokens, getStatus, getCache, getTokens,
   performSync, normalizeNumune, syncTelemetriOnly, mergeMailDurum,
+  hydrateEbistrFallbackFromJsonIfEmpty,
 } from '@/lib/ebistr-engine';
 
 /** Vercel: yanıt döndükten sonra da performSync tamamlanabilsin (aksi halde 202 sonsuz döngü) */
@@ -21,6 +22,8 @@ const cors = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
+const ebistrHeaders = { ...cors, 'X-Ebistr-Api': '2-json-fallback' } as Record<string, string>;
+
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: cors });
 }
@@ -30,6 +33,7 @@ export const maxDuration = 300;
 
 // ── Slug bazlı routing ─────────────────────────────────────────────
 export async function GET(req: NextRequest, { params }: { params: Promise<{ slug?: string[] }> }) {
+  hydrateEbistrFallbackFromJsonIfEmpty();
   const { slug = [] } = await params;
   const endpoint = slug.join('/');
 
@@ -37,25 +41,32 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
   if (endpoint === 'sync-now' || endpoint === 'sync') {
     const s = getStatus();
     if (!s.loggedIn) {
-      return NextResponse.json({ ok: false, err: 'Token yok, önce giriş yapın.' }, { status: 401, headers: cors });
+      // 401 tarayıcıda kırmızı “Failed to load resource”; yeni domain/Vercel soğuk örnek için 200 + ok:false
+      return NextResponse.json(
+        {
+          ok: false,
+          err: 'Sunucuda EBİSTR JWT yok. Chrome eklentisini v1.1+ yapıp lab sayfasını yenileyin, Ayar’dan token gönderin veya Vercel’de EBISTR_SERVER_TOKEN kullanın.',
+        },
+        { status: 200, headers: ebistrHeaders },
+      );
     }
     if (s.isSyncing) {
-      return NextResponse.json({ ok: true, msg: 'Senkron zaten çalışıyor', lastSync: s.lastSync }, { headers: cors });
+      return NextResponse.json({ ok: true, msg: 'Senkron zaten çalışıyor', lastSync: s.lastSync }, { headers: ebistrHeaders });
     }
     ebistrScheduleSync(performSync());
     return NextResponse.json(
       { ok: true, msg: 'Senkron arka planda başladı; numuneler birkaç dakika içinde dolacak.', lastSync: s.lastSync, cacheSize: s.cacheSize },
-      { headers: cors }
+      { headers: ebistrHeaders }
     );
   }
 
   if (endpoint === 'status') {
-    return NextResponse.json({ ok: true, ...getStatus() }, { headers: cors });
+    return NextResponse.json({ ok: true, ...getStatus() }, { headers: ebistrHeaders });
   }
 
   if (endpoint === 'mail-durum') {
     const c = getCache();
-    return NextResponse.json({ ok: true, mailDurum: c.mailDurum || {} }, { headers: cors });
+    return NextResponse.json({ ok: true, mailDurum: c.mailDurum || {} }, { headers: ebistrHeaders });
   }
 
   if (endpoint === 'yaklasan') {
@@ -72,7 +83,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
 
   if (endpoint === 'debug-fields') {
     const raw = getCache().rawNumuneler;
-    if (!raw.length) return NextResponse.json({ ok: false, err: 'Henüz sync edilmedi' }, { headers: cors });
+    if (!raw.length) return NextResponse.json({ ok: false, err: 'Henüz sync edilmedi' }, { headers: ebistrHeaders });
     const ornek = raw[0];
     const alanlar: Record<string, any> = {};
     Object.keys(ornek).forEach(k => {
@@ -81,40 +92,41 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
       else if (typeof v === 'object' && !Array.isArray(v)) alanlar[k] = '{ ' + Object.keys(v).slice(0, 8).join(', ') + ' }';
       else alanlar[k] = v;
     });
-    return NextResponse.json({ ok: true, ornek: alanlar, toplamKayit: raw.length }, { headers: cors });
+    return NextResponse.json({ ok: true, ornek: alanlar, toplamKayit: raw.length }, { headers: ebistrHeaders });
   }
 
   if (endpoint === 'telemetri') {
-    return NextResponse.json({ ok: true, ...getStatus() }, { headers: cors });
+    return NextResponse.json({ ok: true, ...getStatus() }, { headers: ebistrHeaders });
   }
 
-  return NextResponse.json({ ok: false, err: 'Bilinmeyen endpoint: ' + endpoint }, { status: 404, headers: cors });
+  return NextResponse.json({ ok: false, err: 'Bilinmeyen endpoint: ' + endpoint }, { status: 404, headers: ebistrHeaders });
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ slug?: string[] }> }) {
+  hydrateEbistrFallbackFromJsonIfEmpty();
   const { slug = [] } = await params;
   const endpoint = slug.join('/');
   let body: any = {};
   try { body = await req.json(); } catch {}
 
   if (endpoint === 'setToken') {
-    if (!body.token) return NextResponse.json({ ok: false, err: 'Token boş' }, { status: 400, headers: cors });
+    if (!body.token) return NextResponse.json({ ok: false, err: 'Token boş' }, { status: 400, headers: ebistrHeaders });
     addToken(body.token.trim());
     ebistrScheduleSync(performSync());
-    return NextResponse.json({ ok: true, tokenSayisi: getTokens().length }, { headers: cors });
+    return NextResponse.json({ ok: true, tokenSayisi: getTokens().length }, { headers: ebistrHeaders });
   }
 
   if (endpoint === 'logout') {
     clearTokens();
-    return NextResponse.json({ ok: true }, { headers: cors });
+    return NextResponse.json({ ok: true }, { headers: ebistrHeaders });
   }
 
   if (endpoint === 'sync' || endpoint === 'sync-now') {
     const s = getStatus();
-    if (s.isSyncing) return NextResponse.json({ ok: false, err: 'Zaten sync devam ediyor' }, { headers: cors });
-    if (!s.loggedIn) return NextResponse.json({ ok: false, err: 'Token yok' }, { status: 401, headers: cors });
+    if (s.isSyncing) return NextResponse.json({ ok: false, err: 'Zaten sync devam ediyor' }, { headers: ebistrHeaders });
+    if (!s.loggedIn) return NextResponse.json({ ok: false, err: 'Token yok' }, { status: 200, headers: ebistrHeaders });
     ebistrScheduleSync(performSync());
-    return NextResponse.json({ ok: true, msg: 'Sync başlatıldı' }, { headers: cors });
+    return NextResponse.json({ ok: true, msg: 'Sync başlatıldı' }, { headers: ebistrHeaders });
   }
 
   if (endpoint === 'numuneler') {
@@ -124,21 +136,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
   if (endpoint === 'mail-durum') {
     const m = body.merge || body.mailDurum;
     if (m && typeof m === 'object' && !Array.isArray(m)) mergeMailDurum(m as Record<string, boolean>);
-    return NextResponse.json({ ok: true }, { headers: cors });
+    return NextResponse.json({ ok: true }, { headers: ebistrHeaders });
   }
 
   if (endpoint === 'csv-base64') {
     return handleCsvBase64(body);
   }
 
-  return NextResponse.json({ ok: false, err: 'Bilinmeyen endpoint: ' + endpoint }, { status: 404, headers: cors });
+  return NextResponse.json({ ok: false, err: 'Bilinmeyen endpoint: ' + endpoint }, { status: 404, headers: ebistrHeaders });
 }
 
 // ── /api/ebistr/yaklasan ──────────────────────────────────────────
 function handleYaklasan(req: NextRequest) {
   const cache = getCache();
   if (!cache.numuneler.length) {
-    return NextResponse.json({ ok: true, numuneler: [], lastSync: cache.sonGuncelleme }, { headers: cors });
+    return NextResponse.json({ ok: true, numuneler: [], lastSync: cache.sonGuncelleme }, { headers: ebistrHeaders });
   }
 
   const gun = req.nextUrl.searchParams.get('gun');
@@ -235,22 +247,41 @@ function handleYaklasan(req: NextRequest) {
   });
 
   yaklasanlar.sort((a, b) => a.kirimTarihi.localeCompare(b.kirimTarihi));
-  return NextResponse.json({ ok: true, numuneler: yaklasanlar, lastSync: cache.sonGuncelleme }, { headers: cors });
+  return NextResponse.json({ ok: true, numuneler: yaklasanlar, lastSync: cache.sonGuncelleme }, { headers: ebistrHeaders });
 }
 
 // ── /api/ebistr/numuneler ─────────────────────────────────────────
+function resolveNumunelerSource(cache: ReturnType<typeof getCache>): { rows: any[]; fromJsonSnapshot: boolean } {
+  if (cache.numuneler.length) return { rows: cache.numuneler, fromJsonSnapshot: false };
+  const fb = cache.fallbackNormalized;
+  if (fb && fb.length) return { rows: fb, fromJsonSnapshot: true };
+  return { rows: [], fromJsonSnapshot: false };
+}
+
 function handleNumuneler(body: any) {
   const cache = getCache();
-  if (!cache.numuneler.length) {
+  const src = resolveNumunelerSource(cache);
+  if (!src.rows.length) {
     const s = getStatus();
-    if (!s.loggedIn) return NextResponse.json({ ok: false, err: 'Token yok, önce giriş yapın.' }, { status: 401, headers: cors });
+    if (!s.loggedIn) {
+      return NextResponse.json(
+        {
+          ok: false,
+          err: 'Sunucuda EBİSTR token yok. Vercel’de EBISTR_SERVER_TOKEN tanımlayın veya EBİSTR Ayar’dan token gönderin; /tmp her örnekte boşalabilir.',
+          numuneler: [],
+          lastSync: cache.sonGuncelleme,
+          mailDurum: cache.mailDurum && typeof cache.mailDurum === 'object' ? cache.mailDurum : {},
+        },
+        { status: 200, headers: ebistrHeaders },
+      );
+    }
     ebistrScheduleSync(performSync());
-    return NextResponse.json({ ok: false, err: 'İlk sync başladı; 10 sn sonra tekrar deneyin.' }, { status: 202, headers: cors });
+    return NextResponse.json({ ok: false, err: 'İlk sync başladı; 10 sn sonra tekrar deneyin.' }, { status: 202, headers: ebistrHeaders });
   }
 
   const { basTarih, bitTarih, filtre } = body;
   const bugunStr = new Date().toLocaleDateString('en-CA');
-  let liste: any[] = cache.numuneler;
+  let liste: any[] = src.rows;
 
   if (filtre && filtre !== 'hepsi') {
     liste = liste.filter((n: any) => {
@@ -274,7 +305,7 @@ function handleNumuneler(body: any) {
     liste = liste.filter((n: any) => { const d = n.breakDate; if (!d) return false; const t = new Date(d).getTime(); return t >= basMs && t <= bitMs; });
   }
 
-  const normalized = liste.map(normalizeNumune);
+  const normalized = src.fromJsonSnapshot ? liste : liste.map(normalizeNumune);
   const mailDurum = cache.mailDurum && typeof cache.mailDurum === 'object' ? cache.mailDurum : {};
   return NextResponse.json({
     ok: true,
@@ -282,20 +313,27 @@ function handleNumuneler(body: any) {
     toplam: normalized.length,
     lastSync: cache.sonGuncelleme,
     mailDurum,
-  }, { headers: cors });
+    fromJsonSnapshot: src.fromJsonSnapshot,
+  }, { headers: ebistrHeaders });
 }
 
 // ── /api/ebistr/csv-base64 ────────────────────────────────────────
 function handleCsvBase64(body: any) {
   const cache = getCache();
-  if (!cache.numuneler.length) {
+  const src = resolveNumunelerSource(cache);
+  if (!src.rows.length) {
     const s = getStatus();
-    if (!s.loggedIn) return NextResponse.json({ ok: false, err: 'Token yok.' }, { status: 401, headers: cors });
+    if (!s.loggedIn) {
+      return NextResponse.json(
+        { ok: false, err: 'Sunucuda EBİSTR token yok.', lastSync: cache.sonGuncelleme },
+        { status: 200, headers: ebistrHeaders },
+      );
+    }
     ebistrScheduleSync(performSync());
-    return NextResponse.json({ ok: false, err: 'İlk sync başladı.' }, { status: 202, headers: cors });
+    return NextResponse.json({ ok: false, err: 'İlk sync başladı.' }, { status: 202, headers: ebistrHeaders });
   }
 
-  let liste: any[] = cache.numuneler;
+  let liste: any[] = src.rows;
   const { basTarih, bitTarih } = body;
   if (basTarih || bitTarih) {
     const basMs = basTarih ? new Date(basTarih + 'T00:00:00').getTime() : 0;
@@ -307,46 +345,84 @@ function handleCsvBase64(body: any) {
   const headers = ['BRN No','Lab No','Rapor No','Numune Alınış Tarihi','Kırım Tarihi','Kür (Gün)','Beton Sınıfı','fck (Silindir)','fck (Küp)','Numune Boyutu','fc (MPa)','İrsaliye No','Yapı Bölümü','Yapı Denetim','Müteahhit','Yapı Sahibi','Şantiye Adresi','Üretici','m3 (Mevcut)','m3 (Günlük)','Durum','Hesap Dışı','YİBF'].map(h => `"${h}"`).join(';');
 
   const satirlar = [headers];
-  liste.forEach((n: any) => {
-    const yd = (n.yibf?.ydf) ? n.yibf.ydf.name : '';
-    const y  = n.yibf || {};
-    const own = y.buildingOwner || y.ownerName || y.owner?.name || '';
-    const ctr = y.contractor || y.contractorName || y.contractor?.name || '';
-    const adr = y.buildingAddress || y.address || '';
-    const yid = y.number || y.yibfNo || y.id || '';
-    satirlar.push([
-      q(n.brnNo), q(n.labNo), q(n.labReportNo),
-      q((n.takeDate||'').replace('T',' ').substring(0,16)),
-      q((n.breakDate||'').replace('T',' ').substring(0,16)),
-      q(n.curingTime?.id||''), q(n.concreteClass?.name||''),
-      q(n.concreteClass?.resistance||''), q(n.concreteClass?.resistanceCube||''),
-      q(n.sampleSize?.name||''), q((n.pressureResistance||0).toFixed(4)),
-      q(n.wayBillNumber), q(n.structuralComponent),
-      q(yd), q(ctr), q(own), q(adr), q(n.manufacturer),
-      q(n.totalConcreteQuantityByCurrent||0), q(n.totalConcreteQuantityByDaily||0),
-      q(n.state), q(n.outOfCalculation ? 'Evet' : 'Hayır'), q(yid),
-    ].join(';'));
-  });
+  if (src.fromJsonSnapshot) {
+    liste.forEach((n: any) => {
+      const fcVal = typeof n.fc === 'number' ? n.fc : (Number(n.pressureResistance) || 0);
+      const yid = typeof n.yibf === 'string' ? n.yibf : (n.yibf?.number || n.yibfNo || n.yibf?.id || '');
+      const hesapDisi = n.hesapDisi === true || n.outOfCalculation === true;
+      satirlar.push([
+        q(n.brnNo), q(n.labNo), q(n.labReportNo),
+        q((n.takeDate||'').replace('T',' ').substring(0,16)),
+        q((n.breakDate||'').replace('T',' ').substring(0,16)),
+        q(n.curingGun ?? n.curingTime?.id ?? ''),
+        q(n.betonSinifi || n.concreteClass?.name || ''),
+        q(n.fckSil ?? n.concreteClass?.resistance ?? ''),
+        q(n.fckKup ?? n.concreteClass?.resistanceCube ?? ''),
+        q(n.numuneBoyutu || n.sampleSize?.name || ''),
+        q(fcVal.toFixed(4)),
+        q(n.irsaliye || n.wayBillNumber || ''),
+        q(n.yapiElem || n.structuralComponent || ''),
+        q(n.yapiDenetim || n.yibf?.ydf?.name || ''),
+        q(n.contractor || ''), q(n.buildingOwner || ''), q(n.buildingAddress || ''),
+        q(n.manufacturer || ''),
+        q(n.m3 ?? n.totalConcreteQuantityByCurrent ?? 0),
+        q(n.totalM3 ?? n.totalConcreteQuantityByDaily ?? 0),
+        q(n.state || ''), q(hesapDisi ? 'Evet' : 'Hayır'), q(yid),
+      ].join(';'));
+    });
+  } else {
+    liste.forEach((n: any) => {
+      const yd = (n.yibf?.ydf) ? n.yibf.ydf.name : '';
+      const y  = n.yibf || {};
+      const own = y.buildingOwner || y.ownerName || y.owner?.name || '';
+      const ctr = y.contractor || y.contractorName || y.contractor?.name || '';
+      const adr = y.buildingAddress || y.address || '';
+      const yid = y.number || y.yibfNo || y.id || '';
+      satirlar.push([
+        q(n.brnNo), q(n.labNo), q(n.labReportNo),
+        q((n.takeDate||'').replace('T',' ').substring(0,16)),
+        q((n.breakDate||'').replace('T',' ').substring(0,16)),
+        q(n.curingTime?.id||''), q(n.concreteClass?.name||''),
+        q(n.concreteClass?.resistance||''), q(n.concreteClass?.resistanceCube||''),
+        q(n.sampleSize?.name||''), q((n.pressureResistance||0).toFixed(4)),
+        q(n.wayBillNumber), q(n.structuralComponent),
+        q(yd), q(ctr), q(own), q(adr), q(n.manufacturer),
+        q(n.totalConcreteQuantityByCurrent||0), q(n.totalConcreteQuantityByDaily||0),
+        q(n.state), q(n.outOfCalculation ? 'Evet' : 'Hayır'), q(yid),
+      ].join(';'));
+    });
+  }
 
   const csvText = '\uFEFF' + satirlar.join('\n');
   const base64 = Buffer.from(csvText, 'utf-8').toString('base64');
-  return NextResponse.json({ ok: true, base64, satirSayisi: liste.length, lastSync: cache.sonGuncelleme }, { headers: cors });
+  return NextResponse.json({ ok: true, base64, satirSayisi: liste.length, lastSync: cache.sonGuncelleme }, { headers: ebistrHeaders });
 }
 
 // ── /api/ebistr/kurleme ───────────────────────────────────────────
 function handleKurleme() {
   const cache = getCache();
-  const raw: any[] = cache.rawNumuneler.length ? cache.rawNumuneler : cache.numuneler;
+  const src = resolveNumunelerSource(cache);
+  let raw: any[] = cache.rawNumuneler.length ? cache.rawNumuneler : cache.numuneler;
+  let fromSnap = false;
+  if (!raw.length && src.rows.length) {
+    raw = src.rows;
+    fromSnap = src.fromJsonSnapshot;
+  }
   if (!raw.length) {
     const s = getStatus();
-    if (!s.loggedIn) return NextResponse.json({ ok: false, err: 'Token yok, önce giriş yapın.' }, { status: 401, headers: cors });
+    if (!s.loggedIn) {
+      return NextResponse.json(
+        { ok: false, err: 'Sunucuda EBİSTR token yok.', numuneler: [], lastSync: cache.sonGuncelleme },
+        { status: 200, headers: ebistrHeaders },
+      );
+    }
     ebistrScheduleSync(performSync());
-    return NextResponse.json({ ok: false, err: 'İlk sync başladı; 10 sn sonra tekrar deneyin.' }, { status: 202, headers: cors });
+    return NextResponse.json({ ok: false, err: 'İlk sync başladı; 10 sn sonra tekrar deneyin.' }, { status: 202, headers: ebistrHeaders });
   }
   const cutoffMs = Date.now() - 45 * 86400000;
   const active = raw.filter((n: any) => n.takeDate && new Date(n.takeDate).getTime() >= cutoffMs);
-  const numuneler = active.map(normalizeNumune);
-  return NextResponse.json({ ok: true, numuneler, toplam: numuneler.length, lastSync: cache.sonGuncelleme }, { headers: cors });
+  const numuneler = fromSnap ? active : active.map(normalizeNumune);
+  return NextResponse.json({ ok: true, numuneler, toplam: numuneler.length, lastSync: cache.sonGuncelleme, fromJsonSnapshot: fromSnap }, { headers: ebistrHeaders });
 }
 
 // ── /api/ebistr/taglar ────────────────────────────────────────────
@@ -365,5 +441,5 @@ function handleTaglar() {
     return { firma, belge, top: item.totalCount || 0, kul: item.usedCount || 0, kal: item.remaining || 0, tip: isYdk ? 'ydk' : 'mutahhit', rawId: item.id };
   }).filter(Boolean);
 
-  return NextResponse.json({ ok: true, taglar: normalized, toplam: normalized.length, lastSync: cache.sonGuncelleme }, { headers: cors });
+  return NextResponse.json({ ok: true, taglar: normalized, toplam: normalized.length, lastSync: cache.sonGuncelleme }, { headers: ebistrHeaders });
 }

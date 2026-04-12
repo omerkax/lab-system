@@ -14,12 +14,20 @@
     var DB_URL = "https://firestore.googleapis.com/v1/projects/" + FB_CONFIG.projectId + "/databases/(default)/documents";
     var DB_KEY = FB_CONFIG.apiKey;
 
-    /** layout Script: NEXT_PUBLIC_LAB_BASE_URL — NetGSM köprüsü ile aynı site kökü */
+    /** layout / env ile aynı kök; eski *.vercel.app env iken sayfa özel domaindeyse location.origin kullan */
     function labPublicOrigin() {
         if (typeof window === 'undefined') return '';
-        var env = window.__LAB_BASE_URL__;
-        if (env != null && String(env).trim() !== '') return String(env).trim().replace(/\/+$/, '');
-        return (window.location.origin || '').replace(/\/+$/, '');
+        var loc = (window.location.origin || '').replace(/\/+$/, '');
+        var raw = (window.__LAB_BASE_URL__ != null && String(window.__LAB_BASE_URL__).trim() !== '')
+            ? String(window.__LAB_BASE_URL__).trim().replace(/\/+$/, '')
+            : '';
+        if (!raw) return loc;
+        try {
+            var envHost = new URL(raw).hostname.toLowerCase();
+            var locHost = (window.location.hostname || '').toLowerCase();
+            if (/\.vercel\.app$/i.test(envHost) && !/\.vercel\.app$/i.test(locHost)) return loc;
+        } catch (e) {}
+        return raw;
     }
     /** NetGSM: Vercel’de PHP yok; Next /api/netgsm (netgsm_proxy.php ile aynı sorgu parametreleri) */
     function netgsmProxyAbs(queryNoQ) {
@@ -161,7 +169,11 @@
             return fetch(url, { headers: fsHeaders() })
                 .then(function (r) {
                     if (r.status === 404) return null;
-                    if (!r.ok) { console.warn('fsGetDoc hata ' + r.status + ' (' + collection + '/' + docId + ')'); return null; }
+                    if (!r.ok) {
+                        if (typeof _fsNotifyAccessDenied === 'function') _fsNotifyAccessDenied(r, 'GET doc', collection + '/' + docId);
+                        console.warn('fsGetDoc hata ' + r.status + ' (' + collection + '/' + docId + ')');
+                        return null;
+                    }
                     return r.json();
                 })
                 .then(function (data) {
@@ -202,6 +214,7 @@
                     }
                     // 400 veya koleksiyon henüz yok → boş döndür, hata fırlatma
                     if (!r.ok) {
+                        if (typeof _fsNotifyAccessDenied === 'function') _fsNotifyAccessDenied(r, 'GET list', collection);
                         console.warn('fsGet hata ' + r.status + ' (' + collection + ') — boş array dönülüyor');
                         return Promise.resolve(accumulated);
                     }
@@ -234,6 +247,7 @@
                 return;
             }
             if (!r.ok) {
+                if (typeof _fsNotifyAccessDenied === 'function') _fsNotifyAccessDenied(r, 'PATCH', collection + '/' + docId);
                 console.warn('fsSet hata ' + r.status + ' (' + collection + '/' + docId + ')');
             }
         }).catch(function (e) {
@@ -246,7 +260,10 @@
         return fetch(fsUrl(collection, docId) + "?key=" + DB_KEY, {
             method: "DELETE", headers: fsHeaders()
         }).then(function (r) {
-            if (!r.ok) console.warn('fsDel hata ' + r.status);
+            if (!r.ok) {
+                if (typeof _fsNotifyAccessDenied === 'function') _fsNotifyAccessDenied(r, 'DELETE', collection + '/' + docId);
+                console.warn('fsDel hata ' + r.status);
+            }
         }).catch(function (e) {
             console.error('fsDel network hata:', e);
         });
@@ -1648,6 +1665,7 @@
             if (row.waKey) set.waKey = row.waKey;
             lsSet('alibey_api', set);
             loadApiSettings();
+            if (typeof updateNetgsmBalance === 'function') updateNetgsmBalance();
         });
     }
 
@@ -2836,6 +2854,18 @@
     // ── AUTH, LOGS & SETTINGS ──
     var activeUser = null;
     var activeUserName = '';
+
+    /** Next.js portal: `lab_session` — `alibey_user` (eski giriş) yokken de Firestore sync gerekir */
+    function _labSessionOk() {
+        try {
+            var raw = localStorage.getItem('lab_session');
+            if (!raw) return false;
+            var o = JSON.parse(raw);
+            return !!(o && o.userId && o.ad && o.roleId);
+        } catch (e) {
+            return false;
+        }
+    }
 
     function checkAuth() {
         var u = lsGet('alibey_user');
@@ -4713,6 +4743,7 @@
             var btn = document.getElementById('ct-' + t);
             if (btn) btn.classList.toggle('on', t === tab);
         });
+        if (tab === 'izle' && typeof updateNetgsmBalance === 'function') updateNetgsmBalance();
         if (tab === 'kayit') { renderTelsEnhanced(); _fillDataLists(); updateNetgsmBalance(); }
         if (tab === 'sablon') loadSablon();
         if (tab === 'siparis') { clearChipOrderForm(); renderChipOrders(); _fillDataLists(); }
@@ -6318,6 +6349,14 @@
         localStorage.removeItem('alibey_sync_lock');
         updateChipStats();
         checkAuth();
+        // Portal (`lab_session`) ile giriş: `alibey_user` yok → checkAuth Firestore sync başlatmaz; API/çip yine de çekilsin
+        var _bootUser = lsGet('alibey_user');
+        if ((!_bootUser || !_bootUser.id) && _labSessionOk()) {
+            setTimeout(function () {
+                fbSyncAll();
+                startFbPolling();
+            }, 400);
+        }
         // Ana sayfa değilse (Next.js alt sayfaları: /beton, /chip vb.) sw/goNav çağırma
         var _isMainPage = window.location.pathname === '/' || window.location.pathname === '/index.html';
         // Next.js dashboard: lab_session ile girişte alibey_user yok → sw varsayılan 'personel' + cari yasak → toast.

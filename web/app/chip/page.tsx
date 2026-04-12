@@ -368,6 +368,7 @@ export default function Page() {
         // Next.js: bootstrap bazen fbPullChip’ten sonra; önce LS’deki son EBİSTR/CSV listesini yükle, sonra Firestore ile birleştir.
         if (typeof w.loadChipFromLocalStorage === 'function') w.loadChipFromLocalStorage();
         if (w.chipTab) w.chipTab('izle');
+        if (typeof w.updateNetgsmBalance === 'function') w.updateNetgsmBalance();
         if (w.fbPullChip) w.fbPullChip();
         if (w.fbPullOrders) w.fbPullOrders();
         if (w.fbPullSF) w.fbPullSF();

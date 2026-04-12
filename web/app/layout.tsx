@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import "./globals.css";
 import ClientLayout from "@/components/ClientLayout";
 
@@ -11,16 +12,42 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+function resolveLabBaseUrl(envBase: string, requestOrigin: string): string {
+  const e = envBase.trim();
+  const d = requestOrigin.trim();
+  if (!e && d) return d;
+  if (!e) return "";
+  if (!d) return e;
+  try {
+    const envHost = new URL(e).hostname.toLowerCase();
+    const reqHost = new URL(d).hostname.toLowerCase();
+    // Özel domaine geçildiğinde Vercel’de unutulmuş *.vercel.app env → yanlış hosta istek (yavaş / boş veri)
+    if (/\.vercel\.app$/i.test(envHost) && !/\.vercel\.app$/i.test(reqHost)) return d;
+  } catch {
+    /* ignore */
+  }
+  return e;
+}
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const labBase = (
+  const h = await headers();
+  const xfHost = h.get("x-forwarded-host");
+  const host = (xfHost?.split(",")[0]?.trim() || h.get("host") || "").trim();
+  const xfProto = h.get("x-forwarded-proto");
+  const proto = (xfProto?.split(",")[0]?.trim() || "https").trim();
+  const requestOrigin = host ? `${proto}://${host}` : "";
+
+  const envBase = (
     process.env.NEXT_PUBLIC_LAB_BASE_URL ||
     process.env.NEXT_PUBLIC_EBISTR_PROXY_URL ||
     ""
   ).trim();
+
+  const labBase = resolveLabBaseUrl(envBase, requestOrigin);
 
   return (
     <html lang="tr">
@@ -33,8 +60,8 @@ export default function RootLayout({
           }}
         />
         <script src="/xlsx.js?v=20260410-1" defer />
-        <script src="/app-core.js?v=20260410-1" defer />
-        <script src="/app.js?v=20260412-netgsm-api" defer />
+        <script src="/app-core.js?v=20260414-ebistr-json-fallback" defer />
+        <script src="/app.js?v=20260414-ebistr-json-fallback" defer />
       </head>
       <body>
         <ClientLayout>{children}</ClientLayout>

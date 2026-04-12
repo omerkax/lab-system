@@ -298,7 +298,7 @@ setTimeout(performSync, 5000);
 
 // ebistr.js ebistrCanliCek(force) — GET ile tam tarama (önceden route yoktu)
 app.get('/api/ebistr/sync-now', async (req, res) => {
-    if (authTokens.length === 0) return res.status(401).json({ ok: false, err: 'Token yok' });
+    if (authTokens.length === 0) return res.status(200).json({ ok: false, err: 'Token yok' });
     if (isSyncing) return res.json({ ok: true, msg: 'Senkron zaten çalışıyor', lastSync: ebistrCache.sonGuncelleme });
     try {
         await performSync();
@@ -401,7 +401,7 @@ app.post('/api/ebistr/csv-base64', async (req, res) => {
     const { basTarih, bitTarih } = req.body;
     
     if (ebistrCache.numuneler.length === 0) {
-        if (authTokens.length === 0) return res.status(401).json({ ok: false, err: 'Önce giriş yapmalısınız.' });
+        if (authTokens.length === 0) return res.status(200).json({ ok: false, err: 'Önce giriş yapmalısınız.', base64: '', satirSayisi: 0 });
         performSync();
         return res.status(202).json({ ok: false, err: 'Hafıza henüz boş, ilk senkronizasyon başladı. Lütfen 10 sn sonra tekrar deneyin.' });
     }
@@ -547,7 +547,15 @@ app.post('/api/ebistr/numuneler', (req, res) => {
     const { basTarih, bitTarih, filtre } = req.body || {};
 
     if (ebistrCache.numuneler.length === 0) {
-        if (authTokens.length === 0) return res.status(401).json({ ok: false, err: 'Önce giriş yapmalısınız.' });
+        if (authTokens.length === 0) {
+            return res.status(200).json({
+                ok: false,
+                err: 'Önce giriş yapmalısınız.',
+                numuneler: [],
+                lastSync: ebistrCache.sonGuncelleme,
+                mailDurum: {},
+            });
+        }
         performSync();
         return res.status(202).json({ ok: false, err: 'İlk senkronizasyon başladı. Lütfen 10 sn sonra tekrar deneyin.' });
     }

@@ -31,6 +31,8 @@ declare global {
   // eslint-disable-next-line no-var
   var _ebistr: {
     tokens: string[];
+    /** Son başarılı istekte kullanılan JWT; geçerli olduğu sürece yeniden tarama yapılmaz */
+    preferredToken: string | null;
     cache: EbistrCache;
     syncing: boolean;
     lastSyncAttempt: string | null;
@@ -41,6 +43,8 @@ interface EbistrCache {
   sonGuncelleme: string | null;
   numuneler: any[];
   rawNumuneler: any[];
+  /** Bellekte ham önbellek boşken ebistr-numuneler.json’dan okunan normalize satırlar (Vercel soğuk örnekte anında tablo) — saveCache’e yazılmaz */
+  fallbackNormalized?: any[];
   taglar: any[];
   telemetry: any[];
   alarms: any[];
@@ -50,7 +54,8 @@ interface EbistrCache {
   mailDurum: Record<string, boolean>;
 }
 
-let telemetrySyncing = false;
+/** Aynı anda birden fazla syncTelemetriOnly çağrısı tek işe birleşir (Vercel’de boş dönüş engeli). */
+let telemetrySyncInFlight: Promise<void> | null = null;
 
 function ensureDataDir() {
   const dir = getEbistrDataDir();
@@ -61,6 +66,7 @@ function getState() {
   if (!globalThis._ebistr) {
     globalThis._ebistr = {
       tokens: [],
+      preferredToken: null,
       cache: { 
         sonGuncelleme: null, 
         numuneler: [], 
@@ -83,6 +89,7 @@ function getState() {
 export function loadToken() {
   ensureDataDir();
   const state = getState();
+  state.preferredToken = null;
   try {
     const tf = ebistrTokenPath();
     if (fs.existsSync(tf)) {
@@ -93,6 +100,8 @@ export function loadToken() {
       } else if (saved?.token) {
         state.tokens = [saved.token];
       }
+      const p = typeof saved?.preferredToken === 'string' ? saved.preferredToken.trim() : '';
+      if (p && state.tokens.includes(p)) state.preferredToken = p;
     }
   } catch (e: any) { console.warn('[ebistr] Token yüklenemedi:', e.message); }
 
@@ -101,6 +110,26 @@ export function loadToken() {
   if (envTok && !state.tokens.includes(envTok)) {
     state.tokens.unshift(envTok);
     console.log('[ebistr] EBISTR_SERVER_TOKEN ortam değişkeninden 1 token eklendi.');
+  }
+
+  /** Vercel: /tmp boşken repodaki data/ebistr_token.json (deploy’a gömülü veya CI) yedek okuma */
+  if (state.tokens.length === 0 && process.env.VERCEL) {
+    try {
+      const bundled = path.join(process.cwd(), 'data', 'ebistr_token.json');
+      if (fs.existsSync(bundled) && bundled !== ebistrTokenPath()) {
+        const saved = JSON.parse(fs.readFileSync(bundled, 'utf-8'));
+        if (saved?.tokens && Array.isArray(saved.tokens)) {
+          state.tokens = saved.tokens;
+          console.log('[ebistr] data/ebistr_token.json üzerinden token yüklendi (Vercel yedek).');
+        } else if (saved?.token) {
+          state.tokens = [saved.token];
+        }
+        const p = typeof saved?.preferredToken === 'string' ? saved.preferredToken.trim() : '';
+        if (p && state.tokens.includes(p)) state.preferredToken = p;
+      }
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -113,9 +142,52 @@ export function loadCache() {
       getState().cache = saved;
       const st = getState().cache;
       if (!st.mailDurum || typeof st.mailDurum !== 'object') st.mailDurum = {};
+      delete st.fallbackNormalized;
       console.log(`[ebistr] Cache yüklendi: ${saved.numuneler?.length ?? 0} kayıt (Son: ${saved.sonGuncelleme})`);
     }
   } catch (e: any) { console.warn('[ebistr] Cache okunamadı:', e.message); }
+  hydrateEbistrFallbackFromJsonIfEmpty();
+}
+
+const EBISTR_NUMUNELER_JSON = 'ebistr-numuneler.json';
+
+function readEbistrNumunelerJsonFromDisk(): any[] {
+  const paths = [
+    path.join(getEbistrDataDir(), EBISTR_NUMUNELER_JSON),
+    path.join(process.cwd(), 'data', EBISTR_NUMUNELER_JSON),
+  ];
+  for (const p of paths) {
+    try {
+      if (fs.existsSync(p)) {
+        const arr = JSON.parse(fs.readFileSync(p, 'utf-8'));
+        if (Array.isArray(arr) && arr.length) {
+          console.log(`[ebistr] JSON anlık görüntü: ${arr.length} satır (${p})`);
+          return arr;
+        }
+      }
+    } catch {
+      /* next path */
+    }
+  }
+  return [];
+}
+
+/** Ham önbellek boşken diskteki ebistr-numuneler.json ile API hemen dolu dönsün (JWT /tmp’de olmasa bile). */
+export function hydrateEbistrFallbackFromJsonIfEmpty(): void {
+  const state = getState();
+  if (state.cache.numuneler.length > 0 || state.cache.rawNumuneler.length > 0) {
+    state.cache.fallbackNormalized = undefined;
+    return;
+  }
+  const rows = readEbistrNumunelerJsonFromDisk();
+  if (!rows.length) {
+    state.cache.fallbackNormalized = undefined;
+    return;
+  }
+  state.cache.fallbackNormalized = rows;
+  if (!state.cache.sonGuncelleme) {
+    state.cache.sonGuncelleme = 'snapshot:ebistr-numuneler.json';
+  }
 }
 
 /** İstemcilerden gelen mail gönderildi bayraklarını birleştirir ve diske yazar */
@@ -131,38 +203,109 @@ export function mergeMailDurum(merge: Record<string, boolean>) {
 export function saveCache() {
   ensureDataDir();
   try {
-    fs.writeFileSync(ebistrCachePath(), JSON.stringify(getState().cache));
+    const st = getState().cache;
+    const { fallbackNormalized: _fb, ...persist } = st as EbistrCache & { fallbackNormalized?: any[] };
+    fs.writeFileSync(ebistrCachePath(), JSON.stringify(persist));
   } catch (e: any) { console.error('[ebistr] Cache kaydedilemedi:', e.message); }
 }
 
 // ── Token yönetimi ─────────────────────────────────────────────────
-export function addToken(token: string) {
+function persistEbistrTokenFile() {
   const state = getState();
-  state.tokens = state.tokens.filter(t => t !== token);
-  state.tokens.unshift(token);
-  if (state.tokens.length > 5) state.tokens = state.tokens.slice(0, 5);
   ensureDataDir();
   try {
-    fs.writeFileSync(ebistrTokenPath(), JSON.stringify({ tokens: state.tokens, date: new Date().toISOString() }));
-    console.log(`[ebistr] Token eklendi. Toplam: ${state.tokens.length}`);
+    const payload: Record<string, unknown> = {
+      tokens: state.tokens,
+      date: new Date().toISOString(),
+    };
+    if (state.preferredToken) payload.preferredToken = state.preferredToken;
+    fs.writeFileSync(ebistrTokenPath(), JSON.stringify(payload));
   } catch {}
 }
 
+/** 401/403 → token ölü; ağ/5xx → ölü sayma (aynı JWT ile devam). */
+async function probeTokenAuthDead(t: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${EBISTR_API}/concreteSample/findAll`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${t}`, 'Origin': 'https://business.ebistr.com', 'Referer': 'https://business.ebistr.com/' },
+      body: JSON.stringify({ requireTotalCount: true, userData: {}, take: 1 }),
+    });
+    return res.status === 401 || res.status === 403;
+  } catch {
+    return false;
+  }
+}
+
+/** Önce tercihli, sonra diğer tüm JWT’ler sırayla probe edilir; ölü olanlar listeden düşer (eski preferred sessizce takılı kalmaz). */
+async function resolveActiveEbistrToken(): Promise<string | null> {
+  const state = getState();
+  if (state.tokens.length === 0) return null;
+
+  const ordered: string[] = [];
+  const add = (t: string) => {
+    const x = (t || '').trim();
+    if (x && !ordered.includes(x)) ordered.push(x);
+  };
+  add(state.preferredToken || '');
+  state.tokens.forEach(t => add(t));
+
+  for (const t of ordered) {
+    if (!state.tokens.includes(t)) continue;
+    if (await probeTokenAuthDead(t)) {
+      state.tokens = state.tokens.filter(x => x !== t);
+      if (state.preferredToken === t) state.preferredToken = null;
+      persistEbistrTokenFile();
+      console.warn('[ebistr] Geçersiz token atıldı.');
+      continue;
+    }
+    state.preferredToken = t;
+    persistEbistrTokenFile();
+    return t;
+  }
+  return null;
+}
+
+function invalidateEbistrToken(t: string) {
+  if (!t) return;
+  const state = getState();
+  state.tokens = state.tokens.filter(x => x !== t);
+  if (state.preferredToken === t) state.preferredToken = null;
+  persistEbistrTokenFile();
+  console.warn('[ebistr] Süresi dolan token kaldırıldı. Kalan:', state.tokens.length);
+}
+
+export function addToken(token: string) {
+  const state = getState();
+  const trimmed = token.trim();
+  state.tokens = state.tokens.filter(t => t !== trimmed);
+  state.tokens.unshift(trimmed);
+  if (state.tokens.length > 5) state.tokens = state.tokens.slice(0, 5);
+  state.preferredToken = trimmed;
+  persistEbistrTokenFile();
+  console.log(`[ebistr] Token eklendi (tercih güncellendi). Toplam: ${state.tokens.length}`);
+}
+
 export function clearTokens() {
-  getState().tokens = [];
+  const state = getState();
+  state.tokens = [];
+  state.preferredToken = null;
   const tf = ebistrTokenPath();
   if (fs.existsSync(tf)) fs.unlinkSync(tf);
 }
 
 export function getStatus() {
   const state = getState();
+  const fb = state.cache.fallbackNormalized?.length || 0;
+  const live = state.cache.numuneler.length;
   return {
     loggedIn: state.tokens.length > 0,
     tokenSayisi: state.tokens.length,
     proxyVersion: 'next-integrated-v1',
     lastSync: state.cache.sonGuncelleme,
     isSyncing: state.syncing,
-    cacheSize: state.cache.numuneler.length,
+    cacheSize: live || fb,
+    jsonSnapshotSize: fb,
     tagSayisi: state.cache.taglar.length,
   };
 }
@@ -192,19 +335,9 @@ export async function performSync(): Promise<void> {
   state.lastSyncAttempt = new Date().toISOString();
   console.log(`\n[ebistr] ${new Date().toLocaleTimeString('tr-TR')} senkronizasyon başladı (${state.tokens.length} token)...`);
 
+  let activeToken = '';
   try {
-    // Çalışan token bul
-    let activeToken = '';
-    for (const t of state.tokens) {
-      try {
-        const testRes = await fetch(`${EBISTR_API}/concreteSample/findAll`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${t}`, 'Origin': 'https://business.ebistr.com', 'Referer': 'https://business.ebistr.com/' },
-          body: JSON.stringify({ requireTotalCount: true, userData: {}, take: 1 }),
-        });
-        if (testRes.ok || (testRes.status !== 401 && testRes.status !== 403)) { activeToken = t; break; }
-      } catch { activeToken = t; break; }
-    }
+    activeToken = (await resolveActiveEbistrToken()) || '';
     if (!activeToken) { console.warn('[ebistr] Geçerli token yok.'); return; }
 
     const takeBas = new Date();
@@ -296,6 +429,7 @@ export async function performSync(): Promise<void> {
 
     state.cache.rawNumuneler = samples;
     state.cache.numuneler = samples;
+    state.cache.fallbackNormalized = undefined;
     state.cache.sonGuncelleme = new Date().toISOString();
 
     // Telemetri senkronizasyonu
@@ -344,11 +478,7 @@ export async function performSync(): Promise<void> {
 
   } catch (e: any) {
     console.error('\n[ebistr] ❌ Sync hatası:', e.message);
-    if (e.message === 'TOKEN_EXPIRED') {
-      const bad = state.tokens[0];
-      state.tokens = state.tokens.filter(t => t !== bad);
-      console.warn('[ebistr] Token geçersiz, silindi. Kalan:', state.tokens.length);
-    }
+    if (e.message === 'TOKEN_EXPIRED') invalidateEbistrToken(activeToken);
   } finally {
     state.syncing = false;
   }
@@ -421,42 +551,40 @@ export function getTokens(): string[] { return getState().tokens; }
 // ── Sadece telemetri + alarm sync (token varsa) ───────────────────
 export async function syncTelemetriOnly(): Promise<void> {
   const state = getState();
-  if (telemetrySyncing || state.tokens.length === 0) return;
-  telemetrySyncing = true;
-  let activeToken = '';
-  for (const t of state.tokens) {
+  if (state.tokens.length === 0) return;
+
+  await (telemetrySyncInFlight ??= (async () => {
     try {
-      const res = await fetch(`${EBISTR_API}/telemetryData/findAll`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${t}`, 'Origin': 'https://business.ebistr.com', 'Referer': 'https://business.ebistr.com/' },
-        body: JSON.stringify({ requireTotalCount: true, userData: {}, take: 1 }),
-      });
-      if (res.ok || (res.status !== 401 && res.status !== 403)) { activeToken = t; break; }
-    } catch { activeToken = t; break; }
-  }
-  if (!activeToken) { telemetrySyncing = false; return; }
-  const hdrs: HeadersInit = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${activeToken}`, 'Origin': 'https://business.ebistr.com', 'Referer': 'https://business.ebistr.com/' };
-  try {
-    try {
-      const telData = await fetchWithRetry(`${EBISTR_API}/telemetryData/findAll`, {
-        method: 'POST', headers: hdrs,
-        body: JSON.stringify({ requireTotalCount: true, userData: {}, take: 2000, sort: [{ selector: 'timestamp', desc: true }] }),
-      });
-      state.cache.telemetry = telData?.items || telData?.data || [];
-      state.cache.lastTelemetrySync = new Date().toISOString();
-    } catch (e: any) { console.warn('[ebistr] syncTelemetriOnly telemetri hatası:', e.message); }
-    try {
-      const alarmData = await fetchWithRetry(`${EBISTR_API}/alarm/findAll`, {
-        method: 'POST', headers: hdrs,
-        body: JSON.stringify({ requireTotalCount: true, userData: {}, take: 50 }),
-      });
-      state.cache.alarms = alarmData?.items || alarmData?.data || [];
-      state.cache.lastAlarmSync = new Date().toISOString();
-    } catch (e: any) { console.warn('[ebistr] syncTelemetriOnly alarm hatası:', e.message); }
-    saveCache();
-  } finally {
-    telemetrySyncing = false;
-  }
+      const activeToken = (await resolveActiveEbistrToken()) || '';
+      if (!activeToken) return;
+      const hdrs: HeadersInit = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${activeToken}`, 'Origin': 'https://business.ebistr.com', 'Referer': 'https://business.ebistr.com/' };
+      try {
+        const telData = await fetchWithRetry(`${EBISTR_API}/telemetryData/findAll`, {
+          method: 'POST', headers: hdrs,
+          body: JSON.stringify({ requireTotalCount: true, userData: {}, take: 2000, sort: [{ selector: 'timestamp', desc: true }] }),
+        });
+        state.cache.telemetry = telData?.items || telData?.data || [];
+        state.cache.lastTelemetrySync = new Date().toISOString();
+      } catch (e: any) {
+        console.warn('[ebistr] syncTelemetriOnly telemetri hatası:', e.message);
+        if (e.message === 'TOKEN_EXPIRED') invalidateEbistrToken(activeToken);
+      }
+      try {
+        const alarmData = await fetchWithRetry(`${EBISTR_API}/alarm/findAll`, {
+          method: 'POST', headers: hdrs,
+          body: JSON.stringify({ requireTotalCount: true, userData: {}, take: 50 }),
+        });
+        state.cache.alarms = alarmData?.items || alarmData?.data || [];
+        state.cache.lastAlarmSync = new Date().toISOString();
+      } catch (e: any) {
+        console.warn('[ebistr] syncTelemetriOnly alarm hatası:', e.message);
+        if (e.message === 'TOKEN_EXPIRED') invalidateEbistrToken(activeToken);
+      }
+      saveCache();
+    } finally {
+      telemetrySyncInFlight = null;
+    }
+  })());
 }
 
 // ── Engine başlatma (instrumentation.ts'ten çağrılır) ─────────────

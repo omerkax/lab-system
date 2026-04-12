@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Alibey EBİSTR Token",
-  "version": "1.0",
+  "version": "1.2",
   "description": "EBİSTR token'ını otomatik yakalar ve proxy'ye kaydeder",
   "permissions": [
     "webRequest",
@@ -21,6 +21,16 @@
   "background": {
     "service_worker": "background.js"
   },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://alibeyerp.omerkaya.com.tr/*",
+        "https://*.omerkaya.com.tr/*"
+      ],
+      "js": ["content-lab-bridge.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
