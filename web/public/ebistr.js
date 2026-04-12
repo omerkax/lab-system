@@ -69,6 +69,37 @@ var EBISTR_PROXY = function () {
     return (inp && inp.value.trim()) || _ebistrProxyDefaultBase();
 };
 
+/**
+ * POST /api/ebistr/numuneler — sunucu 202 döndüğünde (ilk sync) birkaç kez yeniden dener.
+ * Vercel’de waitUntil ile senkron tamamlanana kadar boş cache normaldir.
+ */
+function ebistrPostNumunelerJson(body, maxRetries) {
+    var left = maxRetries == null ? 28 : maxRetries;
+    function step() {
+        return fetch(EBISTR_PROXY() + '/api/ebistr/numuneler', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body || {})
+        })
+            .then(function (r) {
+                return r.json().then(function (d) {
+                    return { status: r.status, d: d };
+                });
+            })
+            .then(function (o) {
+                if (o.status === 202 && left-- > 0) {
+                    return new Promise(function (res) {
+                        setTimeout(function () {
+                            res(step());
+                        }, 2500);
+                    });
+                }
+                return o.d;
+            });
+    }
+    return step();
+}
+
 /** Resmi EBİSTR Business giriş adresi */
 var EBISTR_BUSINESS_ORIGIN = 'https://business.ebistr.com';
 
@@ -168,12 +199,7 @@ function _scheduleEbistrHourlyPull() {
 
 // Proxy'den sessizce veri güncelle (toast yok)
 function _ebistrSilentRefresh() {
-    fetch(EBISTR_PROXY() + '/api/ebistr/numuneler', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filtre: 'hepsi' })
-    })
-    .then(function(r) { return r.json(); })
+    ebistrPostNumunelerJson({ filtre: 'hepsi' }, 20)
     .then(function(d) {
         if (!d.ok || !d.numuneler) return;
         ebistrNumuneler = d.numuneler;
@@ -305,13 +331,8 @@ function ebistrVeriGuncelle() {
     if (info) info.textContent = '⏳ Proxy\'den tüm veriler alınıyor...';
     if (dot) dot.style.background = 'var(--amb)';
     toast('Veriler güncelleniyor...', 'amb');
-    // Filtre yok: tüm hafızayı çek
-    fetch(EBISTR_PROXY() + '/api/ebistr/numuneler', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filtre: 'hepsi' })
-    })
-    .then(function(r) { return r.json(); })
+    // Filtre yok: tüm hafızayı çek (202 ilk sync → otomatik yeniden dene)
+    ebistrPostNumunelerJson({ filtre: 'hepsi' }, 32)
     .then(function(d) {
         if (!d.ok) { toast(d.err || 'Hata oluştu', 'err'); if (info) info.textContent = '❌ ' + (d.err || 'Hata'); return; }
         ebistrNumuneler = d.numuneler || [];
@@ -371,12 +392,7 @@ function _ebistrFetch(bas, bit) {
     if (dot) dot.style.background = 'var(--amb)';
 
     // Yeni JSON endpoint kullan (CSV parse'a gerek yok)
-    fetch(EBISTR_PROXY() + '/api/ebistr/numuneler', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ basTarih: bas, bitTarih: bit })
-    })
-    .then(function(r) { return r.json(); })
+    ebistrPostNumunelerJson({ basTarih: bas, bitTarih: bit }, 32)
     .then(function(d) {
         if (!d.ok) {
             if (info) info.textContent = '⌛ ' + (d.err || 'Bekleniyor...');

@@ -223,16 +223,20 @@ async function dashFetchNumunelerForUyarilar(): Promise<any[]> {
   bit.setDate(bit.getDate() + 14);
   const basS = bas.toLocaleDateString('en-CA');
   const bitS = bit.toLocaleDateString('en-CA');
-  try {
-    const r = await fetch(`${origin}/api/ebistr/numuneler`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ basTarih: basS, bitTarih: bitS }),
-    });
-    const d = await r.json();
-    if (d?.ok && Array.isArray(d.numuneler)) return d.numuneler;
-  } catch {
-    /* ignore */
+  for (let i = 0; i < 20; i++) {
+    try {
+      const r = await fetch(`${origin}/api/ebistr/numuneler`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ basTarih: basS, bitTarih: bitS }),
+      });
+      const d = await r.json();
+      if (d?.ok && Array.isArray(d.numuneler)) return d.numuneler;
+      if (r.status === 202 && d?.err) await new Promise((res) => setTimeout(res, 2500));
+      else break;
+    } catch {
+      break;
+    }
   }
   return [];
 }

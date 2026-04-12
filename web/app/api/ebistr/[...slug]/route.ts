@@ -1,8 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { waitUntil } from '@vercel/functions';
 import {
   addToken, clearTokens, getStatus, getCache, getTokens,
   performSync, normalizeNumune, syncTelemetriOnly, mergeMailDurum,
 } from '@/lib/ebistr-engine';
+
+/** Vercel: yanıt döndükten sonra da performSync tamamlanabilsin (aksi halde 202 sonsuz döngü) */
+function ebistrScheduleSync(work: Promise<void>) {
+  try {
+    waitUntil(work);
+  } catch {
+    work.catch(console.error);
+  }
+}
 
 // Ortak CORS headers — extension ve cross-origin istekler için
 const cors = {
@@ -14,6 +24,9 @@ const cors = {
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: cors });
 }
+
+/** Uzun EBİSTR çekimi — Vercel Pro+ için; Hobby’de platform üst sınırı geçerli kalır */
+export const maxDuration = 300;
 
 // ── Slug bazlı routing ─────────────────────────────────────────────
 export async function GET(req: NextRequest, { params }: { params: Promise<{ slug?: string[] }> }) {
@@ -29,13 +42,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
     if (s.isSyncing) {
       return NextResponse.json({ ok: true, msg: 'Senkron zaten çalışıyor', lastSync: s.lastSync }, { headers: cors });
     }
-    try {
-      await performSync();
-      const t = getStatus();
-      return NextResponse.json({ ok: true, msg: 'Tamam', lastSync: t.lastSync, cacheSize: t.cacheSize }, { headers: cors });
-    } catch (e: any) {
-      return NextResponse.json({ ok: false, err: e?.message || 'Sync hatası' }, { status: 500, headers: cors });
-    }
+    ebistrScheduleSync(performSync());
+    return NextResponse.json(
+      { ok: true, msg: 'Senkron arka planda başladı; numuneler birkaç dakika içinde dolacak.', lastSync: s.lastSync, cacheSize: s.cacheSize },
+      { headers: cors }
+    );
   }
 
   if (endpoint === 'status') {
@@ -89,8 +100,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
   if (endpoint === 'setToken') {
     if (!body.token) return NextResponse.json({ ok: false, err: 'Token boş' }, { status: 400, headers: cors });
     addToken(body.token.trim());
-    // Token eklendikten sonra sync başlat
-    performSync().catch(console.error);
+    ebistrScheduleSync(performSync());
     return NextResponse.json({ ok: true, tokenSayisi: getTokens().length }, { headers: cors });
   }
 
@@ -103,7 +113,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
     const s = getStatus();
     if (s.isSyncing) return NextResponse.json({ ok: false, err: 'Zaten sync devam ediyor' }, { headers: cors });
     if (!s.loggedIn) return NextResponse.json({ ok: false, err: 'Token yok' }, { status: 401, headers: cors });
-    performSync().catch(console.error);
+    ebistrScheduleSync(performSync());
     return NextResponse.json({ ok: true, msg: 'Sync başlatıldı' }, { headers: cors });
   }
 
@@ -234,7 +244,7 @@ function handleNumuneler(body: any) {
   if (!cache.numuneler.length) {
     const s = getStatus();
     if (!s.loggedIn) return NextResponse.json({ ok: false, err: 'Token yok, önce giriş yapın.' }, { status: 401, headers: cors });
-    performSync().catch(console.error);
+    ebistrScheduleSync(performSync());
     return NextResponse.json({ ok: false, err: 'İlk sync başladı; 10 sn sonra tekrar deneyin.' }, { status: 202, headers: cors });
   }
 
@@ -281,7 +291,7 @@ function handleCsvBase64(body: any) {
   if (!cache.numuneler.length) {
     const s = getStatus();
     if (!s.loggedIn) return NextResponse.json({ ok: false, err: 'Token yok.' }, { status: 401, headers: cors });
-    performSync().catch(console.error);
+    ebistrScheduleSync(performSync());
     return NextResponse.json({ ok: false, err: 'İlk sync başladı.' }, { status: 202, headers: cors });
   }
 
@@ -330,7 +340,7 @@ function handleKurleme() {
   if (!raw.length) {
     const s = getStatus();
     if (!s.loggedIn) return NextResponse.json({ ok: false, err: 'Token yok, önce giriş yapın.' }, { status: 401, headers: cors });
-    performSync().catch(console.error);
+    ebistrScheduleSync(performSync());
     return NextResponse.json({ ok: false, err: 'İlk sync başladı; 10 sn sonra tekrar deneyin.' }, { status: 202, headers: cors });
   }
   const cutoffMs = Date.now() - 45 * 86400000;
@@ -345,7 +355,7 @@ function handleTaglar() {
   const s = getStatus();
   const raw = cache.taglar || [];
   if (!raw.length && s.loggedIn && !s.isSyncing) {
-    performSync().catch(console.error);
+    ebistrScheduleSync(performSync());
   }
   const normalized = raw.map((item: any) => {
     const isYdk = !item.contractor;

@@ -60,7 +60,7 @@ export default function Page() {
   useEffect(() => {
     const el = shellRef.current;
     if (el) el.innerHTML = HTML;
-    void ensureEbistrScript('/ebistr.js?v=20260411-proxy-origin').then(() => {
+    void ensureEbistrScript('/ebistr.js?v=20260412-waituntil-retry').then(() => {
       const check = () => {
         if (init.current) return;
         if (typeof (window as any).ebistrInit === 'function') {
