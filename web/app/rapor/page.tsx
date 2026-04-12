@@ -3,9 +3,11 @@ import { useEffect, useRef } from 'react';
 import { pickEbistrYibfGroupKey, resolveYibfForImportRow } from '@/lib/yibf-utils';
 import {
   createRaporDefterYibfLookup,
+  filterRaporStorageRows,
   findLatestRaporRowForYibf,
   mergeRaporMaps,
 } from '@/lib/rapor-defter-lookup';
+import { fetchRaporDefteriWithFallback, syncRaporDefteriRemote } from '@/lib/rapor-defteri-remote';
 
 /* ──────────────────────────────────────────────────────────────────
    Tüm HTML istemci tarafında (useEffect) inject edilir.
@@ -218,21 +220,16 @@ function renderRaporTable(rows: any[]) {
 }
 
 // ── Veri çekme ──────────────────────────────────────────────────
-const isEmpty  = (v: any) => { const s = String(v ?? '').trim(); return !s || /^[-—–]+$/.test(s); };
-const isAllEmpty = (r: Record<string, string>) => Object.values(r).every(isEmpty);
-const hasContent = (r: Record<string, string>) =>
-  r.yibf || r.sahip || r.yd || r.kod || r.alinTarih || r.sinif || r.cins || r.brn7 || r.brn28 || r.tip;
+const isEmpty = (v: any) => {
+  const s = String(v ?? '').trim();
+  return !s || /^[-—–]+$/.test(s);
+};
 
 async function raporYukle() {
   const w = window as any;
   const durum = document.getElementById('rapor-durum');
   try {
-    const res = await fetch('/api/rapor');
-    const json = await res.json();
-    // Filter out all-dash / empty rows that may have been stored from old Excel imports
-    const raw: any[] = json.rows || [];
-    const rows = raw.filter(r => !isAllEmpty(r) && hasContent(r));
-    const map = mergeRaporMaps(json.map || json.data || {}, rows);
+    const { rows, map } = await fetchRaporDefteriWithFallback(window);
     w._raporRows = rows;
     w._raporMap = map;
     w._raporFiltered = null;
@@ -302,23 +299,26 @@ async function raporPageInit() {
       const ws  = wb.Sheets[wb.SheetNames[0]];
       const rawRows: any[] = w.XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
 
-      const rows = rawRows
-        .map(raw => {
+      const rows = filterRaporStorageRows(
+        rawRows.map(raw => {
           const mapped = mapRowKeys(raw);
-          (Object.keys(mapped) as (keyof typeof mapped)[]).forEach(k => { if (isEmpty(mapped[k])) (mapped as any)[k] = ''; });
+          (Object.keys(mapped) as (keyof typeof mapped)[]).forEach(k => {
+            if (isEmpty(mapped[k])) (mapped as any)[k] = '';
+          });
           return mapped;
         })
-        .filter(r => !isAllEmpty(r) && hasContent(r));
+      ) as any[];
 
       const map = mergeRaporMaps({}, rows);
 
-      await fetch('/api/rapor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows, map }) });
+      const { cloudOk } = await syncRaporDefteriRemote(w, rows, map);
       w._raporRows = rows; w._raporMap = map; w._raporFiltered = null; w._raporPage = 0;
       renderRaporTable(rows);
       const cnt = document.getElementById('rapor-cnt'); if (cnt) cnt.textContent = String(rows.length);
       if (durum) durum.textContent = `${rows.length} kayıt yüklendi`;
       w.raporDefterYibfBilgi = createRaporDefterYibfLookup(rows, map);
-      w.toast?.(`${rows.length} kayıt kaydedildi`, 'success');
+      if (cloudOk) w.toast?.(`${rows.length} kayıt kaydedildi`, 'success');
+      else w.toast?.(`${rows.length} kayıt bu oturumda güncellendi; ortak kopya yazılamadı`, 'warn');
     } catch (e: any) {
       if (durum) durum.textContent = 'Hata: ' + (e.message || 'Okunamadı');
       w.toast?.('Excel okunamadı: ' + e.message, 'error');
@@ -514,7 +514,7 @@ async function raporPageInit() {
     buildEbistrPanel(b, e);
   };
 
-  w.raporEbistrImport = () => {
+  w.raporEbistrImport = async () => {
     const groups: Record<string, any[]> = w._raporEbistrGroups || {};
     const existingRows: any[] = w._raporRows || [];
     const toAdd: any[] = [];
@@ -551,7 +551,7 @@ async function raporPageInit() {
     const rows = [...baseRows, ...newRows];
     const map = mergeRaporMaps(w._raporMap || {}, rows);
 
-    fetch('/api/rapor', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rows, map }) });
+    const { cloudOk } = await syncRaporDefteriRemote(w, rows, map);
     w._raporRows = rows; w._raporMap = map; w._raporFiltered = null; w._raporPage = 0;
     w.raporDefterYibfBilgi = createRaporDefterYibfLookup(rows, map);
     renderRaporTable(rows);
@@ -559,7 +559,8 @@ async function raporPageInit() {
     const panel = document.getElementById('rapor-pending-panel');
     if (panel) panel.style.display = 'none';
     const cnt = document.getElementById('rapor-cnt'); if (cnt) cnt.textContent = String(rows.length);
-    w.toast?.(`${newRows.length} numune eklendi`, 'success');
+    if (cloudOk) w.toast?.(`${newRows.length} numune eklendi`, 'success');
+    else w.toast?.(`${newRows.length} numune eklendi; ortak kopya yazılamadı`, 'warn');
   };
 
   // ── Manuel giriş ─────────────────────────────────────────────
@@ -673,7 +674,7 @@ async function raporPageInit() {
     set('mg-ruhsat', info.ruhsatNo);
   };
 
-  w.raporManuelKaydet = () => {
+  w.raporManuelKaydet = async () => {
     const g   = (id: string) => (document.getElementById(id) as HTMLInputElement)?.value?.trim() || '';
     const tip = w._mgTip || 'B';
     const alinTarih = g('mg-alin');
@@ -696,14 +697,15 @@ async function raporPageInit() {
     const rows = [...baseRows, newRow];
     const map = mergeRaporMaps(w._raporMap || {}, rows);
 
-    fetch('/api/rapor', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rows, map }) });
+    const { cloudOk } = await syncRaporDefteriRemote(w, rows, map);
     w._raporRows = rows; w._raporMap = map; w._raporFiltered = null; w._raporPage = 0;
     w.raporDefterYibfBilgi = createRaporDefterYibfLookup(rows, map);
     renderRaporTable(rows);
 
     const panel = document.getElementById('rapor-pending-panel'); if (panel) panel.style.display = 'none';
     const cnt = document.getElementById('rapor-cnt'); if (cnt) cnt.textContent = String(rows.length);
-    w.toast?.(`${newRow.kod} kaydedildi`, 'success');
+    if (cloudOk) w.toast?.(`${newRow.kod} kaydedildi`, 'success');
+    else w.toast?.(`${newRow.kod} kaydedildi; ortak kopya yazılamadı`, 'warn');
   };
 
   // ── Satır detay / deney pop-up ───────────────────────────────
@@ -859,7 +861,7 @@ async function raporPageInit() {
     }
   };
 
-  w.raporDeneyKaydet = () => {
+  w.raporDeneyKaydet = async () => {
     const r = w._deneyRow;
     if (!r) return;
 
@@ -920,10 +922,11 @@ async function raporPageInit() {
     const map = mergeRaporMaps(w._raporMap || {}, rows);
     w._raporMap = map;
     w.raporDefterYibfBilgi = createRaporDefterYibfLookup(rows, map);
-    fetch('/api/rapor', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rows, map }) });
+    const { cloudOk } = await syncRaporDefteriRemote(w, rows, map);
     renderRaporTable(w._raporFiltered || rows);
     document.getElementById('rapor-deney-modal')!.style.display = 'none';
-    w.toast?.(`Kaydedildi${r._deney.durum ? ' · ' + r._deney.durum : ''}`, 'success');
+    if (cloudOk) w.toast?.(`Kaydedildi${r._deney.durum ? ' · ' + r._deney.durum : ''}`, 'success');
+    else w.toast?.(`Kaydedildi; ortak kopya yazılamadı${r._deney.durum ? ' · ' + r._deney.durum : ''}`, 'warn');
   };
 }
 
