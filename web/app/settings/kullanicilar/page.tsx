@@ -222,7 +222,7 @@ export default function KullanicilarPage() {
   const saveOwnerPortal = async () => {
     if (!canManage || !ownerPortalUserId) return;
     const u = users.find((x) => x.id === ownerPortalUserId);
-    if (!u || (!isLabOwnerOmer(u.ad) && !isLabOwnerBunyamin(u.ad))) return;
+    if (!u) return;
     if (!actorUser || !canEditLabUser(actorUser, u)) return;
     const login = oLogin.trim().toLowerCase();
     const pass = oPass.trim();
@@ -421,7 +421,7 @@ export default function KullanicilarPage() {
       <div className="page-body" style={{ maxWidth: 560, margin: '0 auto', paddingTop: 40 }}>
         <div className="ph">
           <h1>Kullanıcılar & roller</h1>
-          <p>Bu sayfayı yalnızca <strong>Ömer Kaya</strong> ve <strong>Bünyamin</strong> düzenleyebilir (Bünyamin, Ömer’in hesabını değiştiremez).</p>
+          <p>Bu sayfayı yalnızca süper admin hesapları düzenleyebilir.</p>
         </div>
         <div className="card">
           <Link href="/giris" className="btn btn-p">
@@ -672,7 +672,7 @@ export default function KullanicilarPage() {
                       >
                         {u.aktif === false ? 'Aktifleştir' : 'Pasifleştir'}
                       </button>
-                      {(isLabOwnerOmer(u.ad) || isLabOwnerBunyamin(u.ad)) && canEdit && (
+                      {canEdit && (
                         <button
                           type="button"
                           className="btn btn-o"
@@ -683,7 +683,7 @@ export default function KullanicilarPage() {
                             setOPass('');
                           }}
                         >
-                          Portal girişi
+                          Şifre değiştir
                         </button>
                       )}
                       {canEdit && (
@@ -705,7 +705,10 @@ export default function KullanicilarPage() {
           </div>
           {ownerPortalUserId && (
             <div className="card" style={{ marginTop: 14, borderLeft: '3px solid var(--acc2)' }}>
-              <div className="ch">Ömer / Bünyamin — portal kullanıcı adı ve şifre</div>
+              <div className="ch">
+                {(() => { const u = users.find(x => x.id === ownerPortalUserId); return u ? (u.ad || u.id) : 'Kullanıcı'; })()}
+                {' — '}şifre değiştir
+              </div>
               <p style={{ fontSize: 12, color: 'var(--tx3)', marginBottom: 12 }}>
                 Portal bilgisi Giriş sayfasındaki kullanıcı adı + şifre alanları içindir.
               </p>

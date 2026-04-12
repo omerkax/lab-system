@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { telemetryRowIsLikelyPoolTemp } from '@/lib/ebistr-telemetry-ui';
 
 const SINIR = { alt: 18, ust: 22 };
 const POLL_MS = 60_000;
@@ -23,9 +24,7 @@ function havuzNoFromItem(item: any): '1' | '2' | null {
 function processTemperatures(items: any[]): { no: '1' | '2'; sicaklik: number; batarya: number | null; zaman: string }[] {
   const byHavuz: Record<string, any[]> = {};
   for (const item of items) {
-    const sName = (item?.sensor?.name || '').toLowerCase();
-    const sDesc = (item?.sensor?.description || '').toLowerCase();
-    if (!sName.includes('temperature') && !sDesc.includes('sıcaklık')) continue;
+    if (!telemetryRowIsLikelyPoolTemp(item)) continue;
     const no = havuzNoFromItem(item);
     if (!no) continue;
     if (!byHavuz[no]) byHavuz[no] = [];

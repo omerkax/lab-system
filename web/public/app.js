@@ -1836,14 +1836,15 @@
             return;
         }
         setSyncBusy();
-        // Sadece chip_data yüklenir — diger koleksiyonlar lazy (tab geçişinde) yüklenir
         fbPullChip().then(function () {
             _releaseSyncLock();
             setSyncStatus(true);
-            // API ve Şablon ayarlarını yükle
-            setTimeout(fbPullApi, 1500);
-            setTimeout(fbPullTemplates, 2500);
-            // NOT: fbMigrateLocalToFirestore (Zombi Veri Kaynağı) Kaldırıldı. 
+            // Ayarlar ve veriler — farklı instance / yeni cihazda da yüklensin
+            setTimeout(fbPullApi, 800);
+            setTimeout(fbPullTemplates, 1600);
+            setTimeout(fbPullPR, 2400);
+            setTimeout(fbPullOrders, 3200);
+            setTimeout(fbPullStaff, 4000);
         }).catch(function () {
             _releaseSyncLock();
             setSyncStatus(false);
@@ -3137,13 +3138,14 @@
 
     function loadApiSettings() {
         var set = lsGet('alibey_api') || {};
-        if (set.smsVen) document.getElementById('apiSmsVen').value = set.smsVen;
-        if (set.smsUser) document.getElementById('apiSmsUser').value = set.smsUser;
-        if (set.smsKey) document.getElementById('apiSmsKey').value = set.smsKey;
-        if (set.smsTotal) document.getElementById('apiSmsTotal').value = set.smsTotal;
-        if (set.smsBas) document.getElementById('apiSmsBas').value = set.smsBas;
-        if (set.waVen) document.getElementById('apiWaVen').value = set.waVen;
-        if (set.waKey) document.getElementById('apiWaKey').value = set.waKey;
+        var el;
+        if (set.smsVen && (el = document.getElementById('apiSmsVen'))) el.value = set.smsVen;
+        if (set.smsUser && (el = document.getElementById('apiSmsUser'))) el.value = set.smsUser;
+        if (set.smsKey && (el = document.getElementById('apiSmsKey'))) el.value = set.smsKey;
+        if (set.smsTotal && (el = document.getElementById('apiSmsTotal'))) el.value = set.smsTotal;
+        if (set.smsBas && (el = document.getElementById('apiSmsBas'))) el.value = set.smsBas;
+        if (set.waVen && (el = document.getElementById('apiWaVen'))) el.value = set.waVen;
+        if (set.waKey && (el = document.getElementById('apiWaKey'))) el.value = set.waKey;
     }
 
     // ── SIDEBAR TOGGLE ──

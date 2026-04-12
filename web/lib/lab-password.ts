@@ -28,23 +28,37 @@ export function isLabOwnerBunyamin(ad?: string | null): boolean {
   return n.includes('bunyamin');
 }
 
-export function canManageLabUsers(actor: { ad?: string | null } | null, hasRegisteredUsers: boolean): boolean {
-  if (!hasRegisteredUsers) return true;
-  if (!actor?.ad) return false;
+const _SUPER_IDS = ['omerkaya', 'omer', 'bunyaminayik'] as const;
+
+function _actorIsSuperAdmin(actor: { ad?: string | null; superAdmin?: boolean; id?: string; login?: string } | null): boolean {
+  if (!actor) return false;
+  if (actor.superAdmin === true) return true;
+  const uid = String(actor.id || '').toLowerCase().trim();
+  const login = String(actor.login || '').toLowerCase().trim();
+  if (_SUPER_IDS.some((s) => s === uid || s === login)) return true;
   return isLabOwnerOmer(actor.ad) || isLabOwnerBunyamin(actor.ad);
 }
 
-export function canEditLabUser(
-  actor: { ad?: string | null } | null,
-  target: { ad?: string | null }
+export function canManageLabUsers(
+  actor: { ad?: string | null; superAdmin?: boolean; id?: string; login?: string } | null,
+  hasRegisteredUsers: boolean
 ): boolean {
-  if (!actor?.ad) return false;
-  if (isLabOwnerOmer(actor.ad)) return true;
-  if (isLabOwnerBunyamin(actor.ad)) {
-    if (isLabOwnerOmer(target.ad)) return false;
+  if (!hasRegisteredUsers) return true;
+  return _actorIsSuperAdmin(actor);
+}
+
+export function canEditLabUser(
+  actor: { ad?: string | null; superAdmin?: boolean; id?: string; login?: string } | null,
+  target: { ad?: string | null; superAdmin?: boolean; id?: string }
+): boolean {
+  if (!_actorIsSuperAdmin(actor)) return false;
+  // Süper admin başka bir süper admini silemez/değiştiremez (Ömer hariç)
+  if (isLabOwnerOmer(actor!.ad) || actor!.superAdmin === true) return true;
+  if (isLabOwnerBunyamin(actor!.ad)) {
+    if (isLabOwnerOmer(target.ad) || target.superAdmin === true) return false;
     return true;
   }
-  return false;
+  return true;
 }
 
 export function userRequiresPortalPassword(u: { login?: string | null; passwordHash?: string | null }): boolean {

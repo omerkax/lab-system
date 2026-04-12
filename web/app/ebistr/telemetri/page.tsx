@@ -3,12 +3,20 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { ensureEbistrScript } from '@/lib/load-script-client';
 import type { TelemetriAlarm } from '@/components/TelemetriAlarmBanner';
 import type { KurTelReading } from '@/lib/kur-sicaklik-export';
+import { telemetryRowIsLikelyPoolTemp } from '@/lib/ebistr-telemetry-ui';
+import {
+  clearTelemetriGecmisFirestore,
+  emptyTelGecmis,
+  loadTelemetriGecmisWithMigration,
+  mergePoolReadings,
+  persistTelemetriGecmisToFirestore,
+  TEL_GECMIS_MAX_PER_POOL,
+  type TelGecmisSatir,
+} from '@/lib/telemetri-gecmis-firestore';
 
 const SINIR = { alt: 18, ust: 22 };
 const POLL_MS = 60_000;
-/** EBİSTR çoğu zaman havuz başına tek “son okuma” döner; geçmiş için tarayıcıda biriktiriyoruz */
-const TEL_GECMIS_STORAGE_KEY = 'ebistr-tel-gecmis-v1';
-const TEL_GECMIS_MAX_PER_POOL = 200;
+/** Geçmiş Firestore’da (sys_config/telemetri_gecmis); EBİSTR anlık ölçümleri ile birleştirilir */
 const TEL_GECMIS_TABLO_SATIR = 30;
 const F058_KONTROL_STORAGE_KEY = 'f058-kontrol-edenler-v1';
 
@@ -51,6 +59,7 @@ function formatZaman(iso: string | null): string {
   if (!iso) return '—';
   try {
     const d = new Date(iso);
+    if (isNaN(d.getTime())) return '—';
     const diff = Date.now() - d.getTime();
     const mins = Math.floor(diff / 60000);
     const saat = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
@@ -60,16 +69,18 @@ function formatZaman(iso: string | null): string {
     if (hrs < 24) return saat + ' (' + hrs + ' sa önce)';
     return d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit' }) + ' ' + saat;
   } catch {
-    return iso;
+    return '—';
   }
 }
 
 function formatTarihSaat(iso: string | null): string {
   if (!iso) return '—';
   try {
-    return new Date(iso).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   } catch {
-    return iso;
+    return '—';
   }
 }
 
@@ -79,55 +90,12 @@ function havuzNoFromName(name: string): '1' | '2' | null {
   return null;
 }
 
-type TelGecmisSatir = { sicaklik: number; zaman: string };
-
-function loadTelGecmisStore(): Record<'1' | '2', TelGecmisSatir[]> {
-  if (typeof window === 'undefined') return { '1': [], '2': [] };
-  try {
-    const raw = localStorage.getItem(TEL_GECMIS_STORAGE_KEY);
-    if (!raw) return { '1': [], '2': [] };
-    const o = JSON.parse(raw) as Record<string, TelGecmisSatir[]>;
-    return { '1': Array.isArray(o['1']) ? o['1'] : [], '2': Array.isArray(o['2']) ? o['2'] : [] };
-  } catch {
-    return { '1': [], '2': [] };
-  }
+export async function clearTelGecmisStorage() {
+  if (typeof window === 'undefined') return;
+  await clearTelemetriGecmisFirestore(window);
 }
 
-function saveTelGecmisStore(data: Record<'1' | '2', TelGecmisSatir[]>) {
-  try {
-    localStorage.setItem(TEL_GECMIS_STORAGE_KEY, JSON.stringify(data));
-  } catch {
-    /* quota */
-  }
-}
-
-/** API’den gelen okumaları (çoğunlukla 1 adet) mevcut geçmişle birleştir; aynı timestamp tek kayıt */
-function mergeTelGecmis(no: '1' | '2', apiRows: TelGecmisSatir[]): TelGecmisSatir[] {
-  const all = loadTelGecmisStore();
-  const map = new Map<string, TelGecmisSatir>();
-  for (const r of all[no]) {
-    if (r.zaman) map.set(r.zaman, r);
-  }
-  for (const r of apiRows) {
-    if (r.zaman && Number.isFinite(r.sicaklik)) map.set(r.zaman, r);
-  }
-  const merged = Array.from(map.values()).sort(
-    (a, b) => new Date(b.zaman).getTime() - new Date(a.zaman).getTime()
-  );
-  all[no] = merged.slice(0, TEL_GECMIS_MAX_PER_POOL);
-  saveTelGecmisStore(all);
-  return all[no];
-}
-
-export function clearTelGecmisStorage() {
-  try {
-    localStorage.removeItem(TEL_GECMIS_STORAGE_KEY);
-  } catch {
-    /* ignore */
-  }
-}
-
-function processItems(
+async function processItems(
   items: any[],
   setHavuzlar: React.Dispatch<React.SetStateAction<HavuzOkuma[]>>
 ) {
@@ -137,11 +105,7 @@ function processItems(
   const byHavuz: Record<'1' | '2', any[]> = { '1': [], '2': [] };
 
   for (const item of items) {
-    const sObj = item?.sensor || {};
-    const sensorName = (sObj.name || '').toLowerCase();
-    const sensorDesc = (sObj.description || '').toLowerCase();
-    const isTemp = sensorName.indexOf('temperature') !== -1 || sensorDesc.indexOf('sıcaklık') !== -1;
-    if (!isTemp) continue;
+    if (!telemetryRowIsLikelyPoolTemp(item)) continue;
 
     const deptName: string = item?.department?.name ?? '';
     const gatewayId: number = item?.gateway?.id;
@@ -157,6 +121,30 @@ function processItems(
     }
 
     if (no) byHavuz[no].push(item);
+  }
+
+  let mergedStore = emptyTelGecmis();
+  try {
+    mergedStore = await loadTelemetriGecmisWithMigration(window);
+  } catch (e) {
+    console.warn('[telemetri] geçmiş yükleme:', e);
+  }
+
+  for (const no of ['1', '2'] as const) {
+    const readings = byHavuz[no].sort(
+      (a: any, b: any) =>
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+    const apiGecmis: TelGecmisSatir[] = readings
+      .map((r: any) => ({ sicaklik: Number(r.value), zaman: String(r.timestamp || '') }))
+      .filter((r) => r.zaman && !Number.isNaN(r.sicaklik));
+    mergedStore = mergePoolReadings(mergedStore, no, apiGecmis);
+  }
+
+  try {
+    await persistTelemetriGecmisToFirestore(window, mergedStore);
+  } catch (e) {
+    console.warn('[telemetri] geçmiş kayıt:', e);
   }
 
   const yeniHavuzlar: HavuzOkuma[] = (['1', '2'] as const).map((no) => {
@@ -178,10 +166,7 @@ function processItems(
         ? 'alarm'
         : 'normal';
 
-    const apiGecmis: TelGecmisSatir[] = readings
-      .map((r: any) => ({ sicaklik: Number(r.value), zaman: String(r.timestamp || '') }))
-      .filter((r) => r.zaman && !Number.isNaN(r.sicaklik));
-    const gecmis = mergeTelGecmis(no, apiGecmis).slice(0, TEL_GECMIS_TABLO_SATIR);
+    const gecmis = mergedStore[no].slice(0, TEL_GECMIS_TABLO_SATIR);
 
     return {
       id: `havuz${no}`,
@@ -232,6 +217,7 @@ export default function TelemetriPage() {
   const [sonGuncelleme, setSonGuncelleme] = useState<string>('');
   const [yukleniyor, setYukleniyor] = useState(false);
   const [hata, setHata] = useState<string | null>(null);
+  const [telemetryUyari, setTelemetryUyari] = useState<string | null>(null);
   const [proxyDurum, setProxyDurum] = useState<'kontrol' | 'ok' | 'hata'>('kontrol');
   const [expBas, setExpBas] = useState(() => {
     const d = new Date();
@@ -271,12 +257,25 @@ export default function TelemetriPage() {
       const res = await fetch('/api/telemetri');
       const json = await res.json();
       if (!json.ok) throw new Error(json.error ?? 'Bilinmeyen hata');
+      const loggedIn = !!json.loggedIn;
       const items: any[] = json.telemetry ?? [];
-      processItems(items, setHavuzlar);
+      await processItems(items, setHavuzlar);
       setSonGuncelleme(new Date().toISOString());
       setHata(null);
+      if (!loggedIn) {
+        setTelemetryUyari(
+          'Bu sunucu örneğinde EBİSTR JWT yok; telemetri çekilmez. Vercel’de EBISTR_SERVER_TOKEN veya lab üzerinden /api/ebistr/setToken ile token gönderin.'
+        );
+      } else if (!items.length) {
+        setTelemetryUyari(
+          'Sunucu telemetri listesi boş döndü. Tam senkron birkaç dakika sürebilir; yine boşsa EBİSTR’de ölçüm veya yetki farkı olabilir.'
+        );
+      } else {
+        setTelemetryUyari(null);
+      }
       setProxyDurum('ok');
     } catch (e: any) {
+      setTelemetryUyari(null);
       setHata(e.message ?? 'Bağlantı hatası');
       setProxyDurum('hata');
     } finally {
@@ -343,7 +342,9 @@ export default function TelemetriPage() {
       : 'rgba(251,191,36,.1)';
   const proxyLabel =
     proxyDurum === 'ok'
-      ? 'EBİSTR Sync bağlı'
+      ? telemetryUyari
+        ? 'Sunucu yanıtı alındı · telemetri eksik'
+        : 'EBİSTR Sync bağlı'
       : proxyDurum === 'hata'
       ? 'EBİSTR Sync bağlanamıyor'
       : 'Kontrol ediliyor...';
@@ -463,6 +464,22 @@ export default function TelemetriPage() {
               {hata}
             </span>
           )}
+          {telemetryUyari && !hata && (
+            <span
+              style={{
+                fontSize: '11px',
+                color: 'var(--amb)',
+                background: 'rgba(251,191,36,.1)',
+                border: '1px solid rgba(251,191,36,.35)',
+                padding: '4px 12px',
+                borderRadius: '7px',
+                maxWidth: '520px',
+                lineHeight: 1.45,
+              }}
+            >
+              {telemetryUyari}
+            </span>
+          )}
 
           <div style={{ flex: 1 }} />
 
@@ -479,10 +496,9 @@ export default function TelemetriPage() {
             type="button"
             className="btn btn-g"
             style={{ fontSize: '11px', height: '34px' }}
-            title="Bu cihazda saklanan sıcaklık geçmişini siler"
+            title="Firestore’daki ortak sıcaklık geçmişini siler"
             onClick={() => {
-              clearTelGecmisStorage();
-              veriCek();
+              void clearTelGecmisStorage().then(() => veriCek());
             }}
           >
             Geçmişi sıfırla
@@ -927,7 +943,7 @@ export default function TelemetriPage() {
 
         <p style={{ fontSize: '12px', color: 'var(--tx3)', marginBottom: '12px', lineHeight: 1.5 }}>
           EBİSTR genelde <strong style={{ color: 'var(--tx2)' }}>anlık tek ölçüm</strong> döndürür; üstteki büyük rakam bunun içindir.
-          Aşağıdaki liste, her yenilemede gelen farklı zaman damgalarını <strong style={{ color: 'var(--tx2)' }}>bu tarayıcıda</strong> birleştirerek doldurulur (havuz başına en fazla {TEL_GECMIS_MAX_PER_POOL} kayıt).
+          Aşağıdaki liste, her yenilemede gelen farklı zaman damgalarını <strong style={{ color: 'var(--tx2)' }}>lab ortamında (Firestore)</strong> birleştirir; havuz başına en fazla {TEL_GECMIS_MAX_PER_POOL} kayıt saklanır.
         </p>
 
         {/* History section */}
