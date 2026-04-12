@@ -39,4 +39,6 @@ Ardından [Next.js deployment documentation](https://nextjs.org/docs/app/buildin
 
 **`EBISTR_SERVER_TOKEN`:** Production’da EBİSTR JWT’sini Vercel env’e koy — `loadToken()` her process başında okur; soğuk başlangıçta dosya yoksa bile senkron çalışır.
 
+**NetGSM (SMS):** Ayarlar / Çip tarafı **`/api/netgsm`** üzerinden çalışır (PHP `netgsm_proxy.php` yerine). Eski cPanel kurulumunda `.php` dosyası kullanılabilir.
+
 İlk numune çekimi uzun sürer; API bazen **202** döner. Sunucu `@vercel/functions` **`waitUntil`** ile senkronu yanıttan sonra tamamlar; istemci **202** için birkaç kez yeniden dener. Hobby planda **maxDuration** üst sınırı düşük olabilir — büyük veri için Pro veya `EBISTR_SERVER_TOKEN` önerilir.

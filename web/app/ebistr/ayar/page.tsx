@@ -56,7 +56,7 @@ const HTML = `
             <div class="ch">🔌 Proxy Bağlantısı</div>
             <div class="alrt i" style="margin-bottom:12px">
                 <span class="alrt-ic">ℹ️</span>
-                <span>EBİSTR API tabanı: alan boşsa otomatik olarak bu sitenin adresi (<code style="background:var(--sur2);padding:2px 6px;border-radius:4px">location.origin</code>) kullanılır; sayfa açılınca bu değer kutuya yazılır. Frontend ile API farklı domaindeyse derleme ortamında <code style="background:var(--sur2);padding:2px 6px;border-radius:4px">NEXT_PUBLIC_LAB_BASE_URL</code> tanımlayın (örn. <code style="background:var(--sur2);padding:2px 6px;border-radius:4px">https://sunucunuz.com</code>) — <code style="background:var(--sur2);padding:2px 6px;border-radius:4px">netgsm_proxy.php</code> ile aynı kök olmalıdır.</span>
+                <span>EBİSTR API tabanı: alan boşsa otomatik olarak bu sitenin adresi (<code style="background:var(--sur2);padding:2px 6px;border-radius:4px">location.origin</code>) kullanılır; sayfa açılınca bu değer kutuya yazılır. Frontend ile API farklı domaindeyse derleme ortamında <code style="background:var(--sur2);padding:2px 6px;border-radius:4px">NEXT_PUBLIC_LAB_BASE_URL</code> tanımlayın (örn. <code style="background:var(--sur2);padding:2px 6px;border-radius:4px">https://sunucunuz.com</code>) — <code style="background:var(--sur2);padding:2px 6px;border-radius:4px">/api/netgsm</code> ile aynı kök olmalıdır.</span>
             </div>
             <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end">
                 <div>

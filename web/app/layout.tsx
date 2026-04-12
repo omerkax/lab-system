@@ -34,7 +34,7 @@ export default function RootLayout({
         />
         <script src="/xlsx.js?v=20260410-1" defer />
         <script src="/app-core.js?v=20260410-1" defer />
-        <script src="/app.js?v=20260411-chip-tags-early" defer />
+        <script src="/app.js?v=20260412-netgsm-api" defer />
       </head>
       <body>
         <ClientLayout>{children}</ClientLayout>

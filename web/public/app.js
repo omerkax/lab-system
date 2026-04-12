@@ -14,15 +14,16 @@
     var DB_URL = "https://firestore.googleapis.com/v1/projects/" + FB_CONFIG.projectId + "/databases/(default)/documents";
     var DB_KEY = FB_CONFIG.apiKey;
 
-    /** layout Script: NEXT_PUBLIC_LAB_BASE_URL — netgsm_proxy.php ile aynı site kökü */
+    /** layout Script: NEXT_PUBLIC_LAB_BASE_URL — NetGSM köprüsü ile aynı site kökü */
     function labPublicOrigin() {
         if (typeof window === 'undefined') return '';
         var env = window.__LAB_BASE_URL__;
         if (env != null && String(env).trim() !== '') return String(env).trim().replace(/\/+$/, '');
         return (window.location.origin || '').replace(/\/+$/, '');
     }
+    /** NetGSM: Vercel’de PHP yok; Next /api/netgsm (netgsm_proxy.php ile aynı sorgu parametreleri) */
     function netgsmProxyAbs(queryNoQ) {
-        return labPublicOrigin() + '/netgsm_proxy.php?' + queryNoQ;
+        return labPublicOrigin() + '/api/netgsm?' + queryNoQ;
     }
 
     function labSaltBytesFromB64(saltB64) {
