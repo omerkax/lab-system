@@ -769,20 +769,24 @@ async function dashLogYukle() {
   try {
     const w = window as any;
     const docs = await w.fsGet('logs');
-    const sorted = (docs || []).sort((a: any, b: any) => (b.zaman || '').localeCompare(a.zaman || '')).slice(0, 20);
+    const pickTs = (x: any) => String(x?.zaman || x?.dt || x?.timestamp || '');
+    const sorted = (docs || []).sort((a: any, b: any) => pickTs(b).localeCompare(pickTs(a))).slice(0, 20);
     if (!sorted.length) {
       el.innerHTML = '<div style="padding:40px 20px;text-align:center;color:var(--tx3);font-size:12px">Henüz log yok.</div>';
       return;
     }
     el.innerHTML = sorted.map((l: any) => {
-      const zaman = l.zaman ? new Date(l.zaman).toLocaleString('tr-TR') : '—';
+      const rawTs = l.zaman || l.dt || '';
+      const zaman = rawTs ? new Date(rawTs).toLocaleString('tr-TR') : '—';
+      const msg = l.aksiyon || l.action || l.mesaj || '—';
+      const modul = l.modul || '';
       return `
         <div style="padding:10px 16px;border-bottom:1px solid var(--bdr)">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-            <div style="font-size:12px;color:var(--tx);flex:1">${l.aksiyon || l.mesaj || '—'}</div>
+            <div style="font-size:12px;color:var(--tx);flex:1">${msg}</div>
             <div style="font-size:10px;color:var(--tx3);white-space:nowrap">${zaman}</div>
           </div>
-          ${l.modul ? `<div style="font-size:10px;color:var(--acc);margin-top:2px;font-weight:600">${l.modul}</div>` : ''}
+          ${modul ? `<div style="font-size:10px;color:var(--acc);margin-top:2px;font-weight:600">${modul}</div>` : ''}
         </div>
       `;
     }).join('');

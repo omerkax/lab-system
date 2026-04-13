@@ -1635,7 +1635,16 @@
     // ── LOGLAR ───────────────────────────────────────────────────────
     function fbPushLog(entry) {
         var id = Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-        fsSet('logs', id, { dt: entry.dt, u: entry.u, action: entry.action });
+        // Dashboard log ekranı zaman/modul/aksiyon alanlarını okuyor; geriye dönük uyum için
+        // eski dt/u/action alanlarını da saklıyoruz.
+        var zaman = entry.zaman || entry.dt || new Date().toISOString();
+        var modul = entry.modul || 'sistem';
+        var aksiyon = entry.aksiyon || entry.action || entry.msg || '';
+        var user = entry.u || entry.user || '';
+        fsSet('logs', id, {
+            zaman: zaman, modul: modul, aksiyon: aksiyon,
+            dt: zaman, u: user, action: aksiyon
+        });
     }
 
     function fbPullLogs() {
@@ -3050,7 +3059,7 @@
         var entry = { dt: new Date().toISOString(), u: activeUserName, a: actionDesc };
         actLogs.unshift(entry);
         if (actLogs.length > 500) actLogs = actLogs.slice(0, 500);
-        fbPushLog({ dt: entry.dt, u: entry.u, action: entry.a });
+        fbPushLog({ dt: entry.dt, u: entry.u, action: entry.a, zaman: entry.dt, modul: 'sistem', aksiyon: entry.a });
         var modSettings = document.getElementById('mod-settings');
         if (modSettings && modSettings.style.display !== 'none') renderLogs();
     }
