@@ -1174,8 +1174,11 @@ function ebistrFiltrele(filtre) {
     ebistrFiltreliListe = ebistrAnalizler.filter(function (a) {
         var df = ebistrFiltreSec === 'hepsi' || a.durum === ebistrFiltreSec;
         var tf = true;
-        if (fBas) tf = tf && (a.breakDate >= fBas);
-        if (fBit) tf = tf && (a.breakDate <= fBit);
+        // breakDate kimi zaman ISO datetime (YYYY-MM-DDTHH:mm) gelir; input ise YYYY-MM-DD.
+        // Aynı gün seçildiğinde (bit==bas) zaman sebebiyle kaçırmasın.
+        var bd = String(a.breakDate || '').slice(0, 10);
+        if (fBas) tf = tf && (bd >= fBas);
+        if (fBit) tf = tf && (bd <= fBit);
         if (fYd)  tf = tf && (a.yapiDenetim === fYd);
         if (fSin) tf = tf && (a.betonSinifi === fSin);
         if (fMut) tf = tf && (a.contractor === fMut);
@@ -2776,7 +2779,6 @@ function ebistrYaklasanRender() {
                     '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">' +
                         (y.yapiElem ? '<span style="background:rgba(139,92,246,.1);color:#a78bfa;border:1px solid rgba(139,92,246,.2);border-radius:6px;padding:2px 8px;font-size:11px;font-weight:600">' + y.yapiElem + '</span>' : '') +
                         '<span style="background:var(--sur2);color:var(--tx);border:1px solid var(--bdr);border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700">' + (y.betonSinifi || '—') + '</span>' +
-                        (y.irsaliye ? '<span style="background:rgba(59,130,246,.10);color:#93c5fd;border:1px solid rgba(59,130,246,.18);border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700" title="İrsaliye">' + y.irsaliye + '</span>' : '') +
                     '</div>' +
                     '<div style="font-size:12px;color:var(--tx2);font-weight:500;margin-bottom:2px" title="' + (y.yapiDenetim || '') + '">' +
                         '<span style="color:var(--tx3);font-size:10px">YD</span> ' + (y.yapiDenetim || '—') +

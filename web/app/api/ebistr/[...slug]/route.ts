@@ -237,15 +237,14 @@ function handleYaklasan(req: NextRequest) {
     const y = rowYObj(n);
     const yibfNo = rowYibfNo(n);
     const bolum = rowBolum(n);
-    // Yaklaşan kırımlar kartları: YİBF + (alınış günü) + irsaliye bazında gruplansın.
-    // Böylece "o irsaliyeye o yibfe ne kadar geldiyse" toplam o olur (3 adet gibi varsayım yok).
-    const irs = rowIrsaliye(n).trim() || 'NO_IRS';
-    const grupKey = yibfNo ? `YBF_${yibfNo}__${tD}__IRS_${irs}` : `BRN_${n.brnNo || 'x'}__${tD}__IRS_${irs}`;
+    // Yaklaşan kırımlar kartları: eski UX — YİBF + (alınış günü) bazında tek kart.
+    // Kart içinde numuneler zaten irsaliyeye göre gruplanıp pill'lerde gösterilir.
+    const grupKey = yibfNo ? `YBF_${yibfNo}__${tD}` : `BRN_${n.brnNo || 'x'}__${tD}`;
 
     if (!gruplar[grupKey]) {
       gruplar[grupKey] = {
         brnNolar: new Set(), betonSiniflari: new Set(), yapiElemler: new Set(),
-        yibfNo, takeDate: tD, irsaliye: irs !== 'NO_IRS' ? irs : '',
+        yibfNo, takeDate: tD,
         yapiDenetim: (y && y.ydf?.name) || n.yapiDenetim || '',
         contractor: y ? getStr(y.contractor) || getStr(y.contractorName) || '' : String(n.contractor || ''),
         buildingOwner: y
@@ -315,7 +314,6 @@ function handleYaklasan(req: NextRequest) {
       yaklasanlar.push({
         brnNo: brnNolarArr.join(', '), brnNolar: brnNolarArr,
         yibfNo: g.yibfNo,
-        irsaliye: g.irsaliye || '',
         betonSinifi: Array.from(g.betonSiniflari as Set<string>).filter(Boolean).join(', '),
         yapiElem: Array.from(g.yapiElemler as Set<string>).filter(Boolean).join(', '),
         takeDate: g.takeDate, kirimTarihi: kirimStr, kurGun, farkGun: fark,
