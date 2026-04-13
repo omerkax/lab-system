@@ -912,7 +912,9 @@ function ebistrTs13515(brnNo, numuneler) {
     var irsGrp = {};
     n28.forEach(function (n) {
         if (n.hesapDisi || n.fc <= 0) return;
-        var k = n.irsaliye || (n.brnNo + '_' + n.takeDate);
+        // İrsaliye boş gelebiliyor; aynı BRN içinde dakika farkıyla ayrı takım oluşturmasın.
+        var tGun = (String(n.takeDate || '').slice(0, 10) || '');
+        var k = n.irsaliye || (n.brnNo + '_' + tGun);
         if (!irsGrp[k]) irsGrp[k] = [];
         irsGrp[k].push(n);
     });

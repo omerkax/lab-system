@@ -41,7 +41,9 @@ function ebistrDahilNumuneAdet(dahil: any[]): number {
 
   const anyExplicit = dahil.some((n: any) => ebistrSatirAcikAdet(n) > 0);
   if (anyExplicit) {
-    return dahil.reduce((s: number, n: any) => s + (ebistrSatirAcikAdet(n) || 1), 0);
+    // EBİSTR satırında "toplamSayisi/adet" bazı ortamlarda grup adedi (örn. 2'li) gibi gelebiliyor.
+    // Beton programında amaç fiziksel numune sayımı: satır başına 1 kabul et (adet>0 ise).
+    return dahil.reduce((s: number, n: any) => s + (ebistrSatirAcikAdet(n) > 0 ? 1 : 0), 0);
   }
 
   const grupAnahtar = (n: any) => {

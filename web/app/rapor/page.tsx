@@ -110,14 +110,17 @@ function renderRaporTable(rows: any[]) {
   const tbody = document.getElementById('rapor-liste');
   if (!tbody) return;
 
-  const reversed = [...rows].reverse();
-  const total = reversed.length;
+  // Büyük defterlerde full kopya+reverse tarayıcıyı dondurabiliyor.
+  // En yeni kayıtlar zaten listenin sonunda kabul edilerek index'le sayfalıyoruz.
+  const total = rows.length;
   const page = w._raporPage || 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
   if (safePage !== page) w._raporPage = safePage;
 
-  const pageRows = reversed.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+  const fromEndStart = Math.max(0, total - (safePage + 1) * PAGE_SIZE);
+  const fromEndEnd = Math.max(0, total - safePage * PAGE_SIZE);
+  const pageRows = rows.slice(fromEndStart, fromEndEnd).reverse(); // sadece sayfa dilimini çevir
 
   const info = document.getElementById('rapor-page-info');
   const prev = document.getElementById('rapor-prev') as HTMLButtonElement | null;
@@ -143,9 +146,10 @@ function renderRaporTable(rows: any[]) {
     return d ? `<span style="color:var(--tx2)">${d}</span>` : empty;
   };
 
-  const globalBase = safePage * PAGE_SIZE;
+  const globalBase = fromEndStart;
   tbody.innerHTML = pageRows.map((r, i) => {
-    const gIdx   = globalBase + i; // reversed array'deki gerçek index
+    // rows içinde gerçek index (en sonda en yeni): fromEndStart..fromEndEnd
+    const gIdx   = globalBase + (pageRows.length - 1 - i);
     const stripe = i % 2 !== 0 ? 'background:rgba(255,255,255,.022)' : '';
     const tipBg  = r.tip === 'B' ? 'rgba(59,130,246,.15)'  : r.tip === 'C' ? 'rgba(34,197,94,.15)'   : 'rgba(251,191,36,.15)';
     const tipClr = r.tip === 'B' ? 'var(--acc2)'           : r.tip === 'C' ? 'var(--grn)'            : 'var(--amb)';

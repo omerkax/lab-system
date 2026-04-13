@@ -115,14 +115,16 @@ export const DEFAULT_SAHA_ROLE = {
   id: SAHA_PERSONEL_ROLE_ID,
   label: 'Saha personeli',
   readOnly: true,
-  modules: {
-    dashboard: false,
-    musteriler: false,
-    personel: true,
-    numune: true,
-    araclar: true,
-    rapor: false,
-    ebistr: false,
-    ayarlar: false,
+  // Saha rolü: yalnızca görüntüleme. Kişisel bordro/izin/performans kısıtları sayfa içinde uygulanır.
+  moduleAccess: {
+    dashboard: 'view',
+    personel: 'view',
+    numune: 'view',
+    araclar: 'view',
+    musteriler: 'none',
+    rapor: 'none',
+    ebistr: 'none',
+    ayarlar: 'none',
   },
+  modules: {},
 } as const;
