@@ -156,6 +156,20 @@ function resolveNumunelerSource(cache: ReturnType<typeof getCache>): { rows: any
   return { rows: [], fromJsonSnapshot: false };
 }
 
+function trDateStr(d: Date): string {
+  // Vercel/Node ortamında server TZ UTC olabilir; EBİSTR ekranları TR (Europe/Istanbul) bekliyor.
+  // en-CA → YYYY-MM-DD
+  return d.toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
+}
+
+function trMidnightMs(yyyyMmDd: string): number {
+  // "YYYY-MM-DD" İstanbul yerel gecesi → UTC ms.
+  // Basit ve deterministik: İstanbul'da 00:00'ı temsil eden anı yakalamak için
+  // o günün İstanbul tarihini alıp Date parsing ile (local TZ yerine) UTC'ye kaydırmayalım.
+  // Bu endpointte sadece fark(gün) hesaplarında kullanılacak; string bazlı bugunStr ana kaynak.
+  return new Date(yyyyMmDd + 'T00:00:00').getTime();
+}
+
 // ── /api/ebistr/yaklasan ──────────────────────────────────────────
 function handleYaklasan(req: NextRequest) {
   const cache = getCache();
@@ -167,8 +181,8 @@ function handleYaklasan(req: NextRequest) {
   const gun = req.nextUrl.searchParams.get('gun');
   const hedefFarklar = gun !== undefined && gun !== null ? [parseInt(gun)] : [0, 1, 2, 3, 7];
   const kurGunleri   = [7, 28, 56, 90];
-  const bugunStr     = new Date().toLocaleDateString('en-CA');
-  const bugunMs      = new Date(bugunStr + 'T00:00:00').getTime();
+  const bugunStr     = trDateStr(new Date());
+  const bugunMs      = trMidnightMs(bugunStr);
 
   const getStr = (v: any) => { if (!v) return ''; if (typeof v === 'string') return v; return v.name || v.title || v.fullName || ''; };
 
@@ -275,7 +289,7 @@ function handleYaklasan(req: NextRequest) {
     const takeMs = new Date(g.takeDate + 'T00:00:00').getTime();
     kurGunleri.forEach(kurGun => {
       const kirimMs  = takeMs + kurGun * 86400000;
-      const kirimStr = new Date(kirimMs).toLocaleDateString('en-CA');
+      const kirimStr = trDateStr(new Date(kirimMs));
       const fark     = Math.round((kirimMs - bugunMs) / 86400000);
       if (!hedefFarklar.includes(fark)) return;
 
@@ -355,7 +369,7 @@ function handleNumuneler(body: any) {
   }
 
   const { basTarih, bitTarih, filtre } = body;
-  const bugunStr = new Date().toLocaleDateString('en-CA');
+  const bugunStr = trDateStr(new Date());
   let liste: any[] = src.rows;
 
   if (filtre && filtre !== 'hepsi') {
