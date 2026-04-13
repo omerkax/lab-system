@@ -2231,11 +2231,18 @@
 /* ── ÖZET KARTLARI ── */
 .ebistr-ozet {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
     gap: 10px;
     margin-bottom: 14px;
 }
 @media(max-width:700px) { .ebistr-ozet { grid-template-columns: 1fr 1fr; } }
+.ebistr-stat-sublbl {
+    font-size: 10px;
+    color: var(--tx3);
+    margin-top: 8px;
+    line-height: 1.35;
+    font-weight: 600;
+}
 .ebistr-stat {
     background: var(--sur);
     border: 1px solid var(--bdr);

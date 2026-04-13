@@ -58,9 +58,10 @@ const HTML = `
         <span id="ebistr-csv-status-dot" style="width:8px;height:8px;border-radius:50%;background:var(--tx3);display:inline-block;flex-shrink:0"></span>
         <span id="ebistr-csv-info">Veri Çekilmedi</span>
       </div>
-      <div class="ebistr-actions" style="display:flex;gap:8px">
+      <div class="ebistr-actions" style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-a" id="ebistr-analiz-btn" onclick="ebistrAnalizEt()" disabled style="background:var(--grn-d);color:var(--grn);border:1px solid var(--grn)">⚙️ Analiz</button>
-        <button class="btn btn-o" id="ebistr-mail-btn" onclick="ebistrTopluMailGonder()" disabled title="Toplu Mail Gönder">📧</button>
+        <button class="btn btn-o" id="ebistr-mail-btn" onclick="ebistrTopluMailGonder()" disabled title="Filtredeki listeye göre toplu mail">📧</button>
+        <button class="btn btn-o" id="ebistr-mail-tumyd-btn" onclick="ebistrTopluMailTumYdTarihAraligi()" disabled title="Kırım tarihi aralığındaki tüm YD firmalarına (mail tanımlı) gönderilmemiş raporlar">📧 Tüm YD</button>
         <button class="btn btn-g" id="ebistr-excel-btn" onclick="ebistrExcelIndir()" disabled title="Excel İndir">⬇</button>
       </div>
     </div>
@@ -139,6 +140,7 @@ const HTML = `
     <div class="ebistr-stat toplam">
       <div class="ebistr-stat-val" id="eoz-toplam">0</div>
       <div class="ebistr-stat-lbl">Toplam Rapor</div>
+      <div id="eoz-aralik-sub" class="ebistr-stat-sublbl"></div>
     </div>
     <div class="ebistr-stat uygunsuz">
       <div class="ebistr-stat-val" id="eoz-uyg" style="color:var(--red)">0</div>
@@ -147,6 +149,10 @@ const HTML = `
     <div class="ebistr-stat uyari">
       <div class="ebistr-stat-val" id="eoz-uyr" style="color:var(--amb)">0</div>
       <div class="ebistr-stat-lbl">Sapmalı</div>
+    </div>
+    <div class="ebistr-stat" style="border-left:3px solid #f97316">
+      <div class="ebistr-stat-val" id="eoz-sapkur" style="color:#f97316">0</div>
+      <div class="ebistr-stat-lbl">Sapma çık. uygun</div>
     </div>
     <div class="ebistr-stat uygun">
       <div class="ebistr-stat-val" id="eoz-uygun" style="color:var(--grn)">0</div>
@@ -388,7 +394,7 @@ function EbistrInner() {
       }
     };
 
-    void ensureEbistrScript('/ebistr.js?v=20260416-yaklasan-dedupe-tip').then(() => {
+    void ensureEbistrScript('/ebistr.js?v=20260411-ebistr-tumyd-netgsm').then(() => {
       runInit();
     });
   }, [params]);

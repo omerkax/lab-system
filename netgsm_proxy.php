@@ -55,12 +55,23 @@ if ($action === 'send') {
     $url = "https://api.netgsm.com.tr/sms/report?usercode=" . urlencode($user) . "&password=" . urlencode($pass) . "&bulkid=" . urlencode($bulkid) . "&type=0&status=100&version=2";
     $raw = netgsmRequest($url);
     $txt = trim((string)$raw);
+    $low = strtolower($txt);
+    if (strpos($low, 'too many requests') !== false || strpos($low, 'rate limit') !== false || preg_match('/\b429\b/', $txt)) {
+        echo "STATUS|ERR|RATE_LIMIT|" . $txt;
+        exit;
+    }
+    if (strpos($txt, 'ERROR|') === 0) {
+        echo "STATUS|ERR|" . $txt;
+        exit;
+    }
 
     // İstemci tarafında parse'i sabitlemek için normalize yanıt:
     // STATUS|<kod>|<hamYanıt>
     // kod: 1=iletildi, 0/4=beklemede, 2/3/11/12/13/14=hata, NA=bulunamadı
+    // XML değilse gövdeden rakam çıkarma (HTML / rate limit yanıtında yanlış "0" yakalanmasın).
+    $looksXml = (strpos($txt, '<?xml') !== false || preg_match('/<bulkreport|<mainbody|<report/i', $txt));
     $statusCode = null;
-    if (preg_match('/(?:^|[^\d])(11|12|13|14|0|1|2|3|4)(?:[^\d]|$)/', $txt, $m)) {
+    if ($looksXml && preg_match('/(?:^|[^\d])(11|12|13|14|0|1|2|3|4)(?:[^\d]|$)/', $txt, $m)) {
         $statusCode = $m[1];
     }
     if ($statusCode === null || $statusCode === '') {

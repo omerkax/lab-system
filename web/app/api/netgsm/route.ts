@@ -120,6 +120,25 @@ export async function GET(req: NextRequest) {
       '&type=0&status=100&version=2';
     const res = await fetch(url, { redirect: 'follow', cache: 'no-store' });
     const txt = (await res.text()).trim();
+    if (!res.ok) {
+      const clip = txt.length > 600 ? txt.slice(0, 600) + '…' : txt;
+      return new NextResponse(`STATUS|ERR|HTTP_${res.status}|${clip}`, {
+        headers: withVia({ ...plain }, 'direct', relayFallback),
+      });
+    }
+    const low = txt.toLowerCase();
+    if (
+      low.includes('too many requests') ||
+      low.includes('too many request') ||
+      /\b429\b/.test(txt) ||
+      low.includes('rate limit') ||
+      low.includes('ratelimit')
+    ) {
+      const clip = txt.length > 400 ? txt.slice(0, 400) + '…' : txt;
+      return new NextResponse(`STATUS|ERR|RATE_LIMIT|${clip}`, {
+        headers: withVia({ ...plain }, 'direct', relayFallback),
+      });
+    }
     let statusCode: string | null = null;
     const m = txt.match(/(?:^|[^\d])(11|12|13|14|0|1|2|3|4)(?:[^\d]|$)/);
     if (m) statusCode = m[1];

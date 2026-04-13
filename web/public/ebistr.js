@@ -106,6 +106,9 @@ var ebistrFiltreSec = 'hepsi';
 /** Hepsi: tarih aralığındaki tüm durumlar (HAFTALIK / 7g dahil). Haftalık sekmesi yalnızca HAFTALIK satırlarını listeler. */
 var ebistrFiltreliListe = []; // Ekranda görünen filtrelenmiş liste
 var ebistrYdList = [];
+/** Firestore ebistr_ayar çekimi tamamlanana kadar otomatik kayıt yapılmaz (SMTP boş yazılıp silinmesin). */
+var _ebistrAyarHydrated = false;
+var _ebistrYdPendingAyarSave = false;
 var ebistrRenkMap = { 'UYGUNSUZ': 'var(--red)', 'UYARI': '#fbbf24', 'UYGUN': 'var(--grn)', 'HAFTALIK': 'var(--acc)', 'SAPMA_KURTARDI': '#f97316' };
 var ebistrEtiketMap = { 'UYGUNSUZ': 'Uygunsuz', 'UYARI': 'Sapmali', 'UYGUN': 'Uygun', 'HAFTALIK': 'Haftalik', 'SAPMA_KURTARDI': 'Sapma Uyarisi' };
 
@@ -848,15 +851,6 @@ function ebistrAnalizEt(opts) {
 
         var uyg   = ebistrAnalizler.filter(function (a) { return a.durum === 'UYGUNSUZ'; }).length;
         var uyr   = ebistrAnalizler.filter(function (a) { return a.durum === 'UYARI' || a.durum === 'SAPMA_KURTARDI'; }).length;
-        var uygun = ebistrAnalizler.filter(function (a) { return a.durum === 'UYGUN'; }).length;
-        var haf   = ebistrAnalizler.filter(function (a) { return a.durum === 'HAFTALIK'; }).length;
-
-        var oz = document.getElementById('ebistr-ozet-row');
-        if (oz) oz.style.display = 'grid';
-        ['eoz-toplam', 'eoz-uyg', 'eoz-uyr', 'eoz-uygun', 'eoz-haftalik'].forEach(function (id, i) {
-            var el = document.getElementById(id);
-            if (el) el.textContent = [ebistrAnalizler.length, uyg, uyr, uygun, haf][i];
-        });
 
         var fr = document.getElementById('ebistr-filtre-row');
         if (fr) fr.style.display = 'flex';
@@ -868,6 +862,8 @@ function ebistrAnalizEt(opts) {
 
         var mb = document.getElementById('ebistr-mail-btn');
         if (mb) mb.disabled = (uyg + uyr) === 0;
+        var mtyd = document.getElementById('ebistr-mail-tumyd-btn');
+        if (mtyd) mtyd.disabled = ebistrAnalizler.length === 0;
         var eb = document.getElementById('ebistr-excel-btn');
         if (eb) eb.disabled = false;
 
@@ -1104,6 +1100,62 @@ function ebistrBuildYdPages(firmaOrder, firmalar, rowLimit) {
     return pages;
 }
 
+/** Gelişmiş filtredeki kırım tarihi (ebistr-f-bas / ebistr-f-bit) ile analiz listesini daraltır. */
+function _ebistrTarihAraliginda(liste, fBas, fBit) {
+    if (!liste || !liste.length) return [];
+    if (!fBas && !fBit) return liste.slice();
+    return liste.filter(function (a) {
+        var tf = true;
+        var bd = String(a.breakDate || '');
+        if (fBas) tf = tf && bd >= fBas;
+        if (fBit) tf = tf && bd <= fBit;
+        return tf;
+    });
+}
+
+/** Özet kartları — tarih aralığına göre (tablo ile aynı kırım filtresi). */
+function _ebistrOzetKartlariYaz(L, fBas, fBit) {
+    var oz = document.getElementById('ebistr-ozet-row');
+    var sub = document.getElementById('eoz-aralik-sub');
+    if (!oz) return;
+    if (!ebistrAnalizler.length) {
+        oz.style.display = 'none';
+        if (sub) sub.textContent = '';
+        return;
+    }
+    oz.style.display = 'grid';
+    var uyg = L.filter(function (a) { return a.durum === 'UYGUNSUZ'; }).length;
+    var sk = L.filter(function (a) { return a.durum === 'SAPMA_KURTARDI'; }).length;
+    var uyr = L.filter(function (a) { return a.durum === 'UYARI'; }).length;
+    var uygun = L.filter(function (a) { return a.durum === 'UYGUN'; }).length;
+    var haf = L.filter(function (a) { return a.durum === 'HAFTALIK'; }).length;
+    var set = function (id, v) {
+        var el = document.getElementById(id);
+        if (el) el.textContent = v;
+    };
+    set('eoz-toplam', L.length);
+    set('eoz-uyg', uyg);
+    set('eoz-uyr', uyr);
+    set('eoz-sapkur', sk);
+    set('eoz-uygun', uygun);
+    set('eoz-haftalik', haf);
+    if (sub) {
+        if (fBas || fBit) {
+            sub.textContent =
+                'Kırım filtresi: ' + (fBas ? fmtD(fBas) : '…') + ' — ' + (fBit ? fmtD(fBit) : '…');
+        } else {
+            sub.textContent = 'Tüm kırım tarihleri';
+        }
+    }
+}
+
+/** ebistrMailHtml tam sayfasından <body> içeriğini ayıklar (toplu mailde tekrar kullanım). */
+function _ebistrMailHtmlBodyIc(html) {
+    if (!html || typeof html !== 'string') return '';
+    var m = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+    return (m ? m[1] : html).trim();
+}
+
 // ── TABLO RENDER ──────────────────────────────────────────────────
 function ebistrFiltrele(filtre) {
     if (filtre) ebistrFiltreSec = filtre;
@@ -1228,10 +1280,13 @@ function ebistrFiltrele(filtre) {
             var uyg = grp.filter(function(a) { return a.durum === 'UYGUNSUZ'; }).length;
             var sap = grp.filter(function(a) { return a.durum === 'SAPMA_KURTARDI'; }).length;
             var ydObj = ebistrYdBul(firmaAd);
-            var mailBtn = ydObj
-                ? '<button class="btn btn-o" style="padding:2px 10px;font-size:11px;border-radius:6px;margin-left:8px" onclick="event.stopPropagation();ebistrTopluMailFirma(\'' + encodeURIComponent(firmaAd) + '\')" title="Bu firmaya toplu mail gönder">📧 Toplu Mail</button>' +
-                  '<button class="btn btn-p" style="padding:2px 10px;font-size:11px;border-radius:6px;margin-left:4px" onclick="event.stopPropagation();ebistrTopluMailOnizle(\'' + encodeURIComponent(firmaAd) + '\')" title="Toplu mail önizle">👁 Önizle</button>'
-                : '<button class="btn btn-p" style="padding:2px 10px;font-size:11px;border-radius:6px;margin-left:8px" onclick="event.stopPropagation();ebistrTopluMailOnizle(\'' + encodeURIComponent(firmaAd) + '\')" title="Toplu mail önizle">👁 Önizle</button>';
+            var mailBtn =
+                '<button class="btn btn-o" style="padding:2px 10px;font-size:11px;border-radius:6px;margin-left:8px" onclick="event.stopPropagation();ebistrTopluMailFirma(\'' +
+                encodeURIComponent(firmaAd) +
+                '\')" title="Bu firmaya toplu mail (tarih aralığı + tablo filtresi)">📧 Toplu Mail</button>' +
+                '<button class="btn btn-p" style="padding:2px 10px;font-size:11px;border-radius:6px;margin-left:4px" onclick="event.stopPropagation();ebistrTopluMailOnizle(\'' +
+                encodeURIComponent(firmaAd) +
+                '\')" title="Toplu mail önizle">👁 Önizle</button>';
             var colCount = 16; // thead sütun sayısı
             html += '<tr data-ebistr-hdr="1" data-ebistr-yd="' + ebistrEscAttr(firmaAd) + '" style="background:var(--bg2)">' +
                 '<td colspan="' + colCount + '" style="padding:8px 12px;border-top:2px solid var(--acc);border-bottom:1px solid var(--bdr)">' +
@@ -1276,6 +1331,9 @@ function ebistrFiltrele(filtre) {
     }
     if (pan)  pan.style.display  = (ebistrAnalizler.length > 0) ? '' : 'none';
     if (frw)  frw.style.display  = '';
+
+    var ozetKaynak = _ebistrTarihAraliginda(ebistrAnalizler, fBas, fBit);
+    _ebistrOzetKartlariYaz(ozetKaynak, fBas, fBit);
 }
 
 function ebistrFiltreDoldur() {
@@ -1806,8 +1864,12 @@ function ebistrYdTespit(numuneler) {
         }
     });
     if (yeniEklendi > 0) {
-        ebistrAyarKaydet(true);
         ebistrYdRender();
+        if (_ebistrAyarHydrated) {
+            ebistrAyarKaydet(true);
+        } else {
+            _ebistrYdPendingAyarSave = true;
+        }
     }
 }
 
@@ -1844,9 +1906,29 @@ function ebistrYdEkle() {
 // ── AYARLAR FONKSİYONLARI (Firestore — paylaşımlı; localStorage yok) ──
 var _ebistrAyarCache = {};
 
+function _ebistrYdListFirestoreIleBirlestir(fsList) {
+    var map = {};
+    var order = [];
+    (fsList || []).forEach(function (y) {
+        if (!y || !y.ad) return;
+        if (!map[y.ad]) order.push(y.ad);
+        map[y.ad] = { ad: y.ad, mail1: y.mail1 || '', mail2: y.mail2 || '', aktif: y.aktif !== false };
+    });
+    ebistrYdList.forEach(function (y) {
+        if (!y || !y.ad) return;
+        if (!map[y.ad]) {
+            order.push(y.ad);
+            map[y.ad] = { ad: y.ad, mail1: y.mail1 || '', mail2: y.mail2 || '', aktif: y.aktif !== false };
+        }
+    });
+    ebistrYdList = order.map(function (ad) { return map[ad]; });
+}
+
 function _ebistrAyarUygula(kaydedilen) {
     if (!kaydedilen) return;
-    if (kaydedilen.ydList) ebistrYdList = kaydedilen.ydList;
+    if (kaydedilen.ydList && Array.isArray(kaydedilen.ydList)) {
+        _ebistrYdListFirestoreIleBirlestir(kaydedilen.ydList);
+    }
     var smtpU  = document.getElementById('ebistr-smtp-user');
     var smtpP  = document.getElementById('ebistr-smtp-pass');
     var smtpC  = document.getElementById('ebistr-smtp-cc');
@@ -1866,27 +1948,52 @@ function _ebistrAyarUygula(kaydedilen) {
 function ebistrAyarYukle() {
     ebistrYdRender();
     ebistrProxyUrlVarsayilanDoldur();
+    _ebistrAyarHydrated = false;
     fbPull('sys_settings', 'ebistr_ayar', function(fs) {
         if (fs) {
             _ebistrAyarCache = fs;
             _ebistrAyarUygula(fs);
         }
+        _ebistrAyarHydrated = true;
+        if (_ebistrYdPendingAyarSave) {
+            _ebistrYdPendingAyarSave = false;
+            ebistrAyarKaydet(true);
+        }
     });
 }
 
 function ebistrAyarKaydet(sessiz) {
+    var prev = _ebistrAyarCache && typeof _ebistrAyarCache === 'object' ? _ebistrAyarCache : {};
     var smtpU  = document.getElementById('ebistr-smtp-user');
     var smtpP  = document.getElementById('ebistr-smtp-pass');
     var smtpC  = document.getElementById('ebistr-smtp-cc');
     var proxyU = document.getElementById('ebistr-proxy-url-inp');
     var mailK  = document.getElementById('ebistr-mail-kosul');
+
+    var smtpUserVal = smtpU ? String(smtpU.value || '').trim() : '';
+    if (smtpU && !smtpUserVal && prev.smtpUser) smtpUserVal = prev.smtpUser;
+    if (!smtpU && prev.smtpUser) smtpUserVal = prev.smtpUser;
+
+    var smtpPassVal = smtpP ? String(smtpP.value || '') : '';
+    if (smtpP && !smtpPassVal && prev.smtpPass) smtpPassVal = prev.smtpPass;
+    if (!smtpP && prev.smtpPass) smtpPassVal = prev.smtpPass;
+
+    var smtpCcVal = smtpC ? String(smtpC.value || '').trim() : '';
+    if (smtpC && !smtpCcVal && prev.smtpCc) smtpCcVal = prev.smtpCc;
+    if (!smtpC && prev.smtpCc) smtpCcVal = prev.smtpCc;
+
+    var proxyVal = proxyU ? String(proxyU.value || '').trim() : '';
+    if (!proxyU && prev.proxyUrl) proxyVal = prev.proxyUrl;
+
+    var mailKVal = mailK ? mailK.value : prev.mailKosul || 'uyari';
+
     var data = {
         ydList:    ebistrYdList,
-        smtpUser:  smtpU  ? smtpU.value  : '',
-        smtpPass:  smtpP  ? smtpP.value  : '',
-        smtpCc:    smtpC  ? smtpC.value  : '',
-        proxyUrl:  proxyU ? proxyU.value : '',
-        mailKosul: mailK  ? mailK.value  : 'uyari'
+        smtpUser:  smtpUserVal,
+        smtpPass:  smtpPassVal,
+        smtpCc:    smtpCcVal,
+        proxyUrl:  proxyVal,
+        mailKosul: mailKVal || 'uyari'
     };
     _ebistrAyarCache = data;
     fbSave('sys_settings', 'ebistr_ayar', data); // Firestore (tüm kullanıcılar)
@@ -1976,6 +2083,15 @@ function ebistrTekMail(idx) {
     .catch(function(e){ toast('Proxy hatası: ' + e.message, 'err'); });
 }
 
+/** Firma satırı: tablo filtresi + (varsa) gelişmiş paneldeki kırım tarihi aralığı. */
+function _ebistrFirmaRaporlariFiltreli(firmaAd) {
+    var fBas = (document.getElementById('ebistr-f-bas') || {}).value || '';
+    var fBit = (document.getElementById('ebistr-f-bit') || {}).value || '';
+    var base = ebistrFiltreliListe.filter(function (a) { return a.yapiDenetim === firmaAd; });
+    if (!fBas && !fBit) return base;
+    return _ebistrTarihAraliginda(base, fBas, fBit);
+}
+
 function ebistrTopluMailGonder() {
     if (typeof _canMail === 'function' && !_canMail()) { toast('Mail gönderme yetkiniz yok', 'err'); return; }
     var ayar = _ebistrAyarCache || {};
@@ -2049,6 +2165,125 @@ function ebistrTopluMailGonder() {
     .catch(function(e){ toast('Proxy hatası: ' + e.message, 'err'); });
 }
 
+/**
+ * Kırım tarihi aralığındaki (ebistr-f-bas / ebistr-f-bit) tüm gönderilmemiş raporları,
+ * mail adresi tanımlı her yapı denetim firmasına ayrı toplu mail olarak gönderir.
+ * Tarih boşsa tüm analiz havuzu kullanılır (onay metninde belirtilir).
+ */
+function ebistrTopluMailTumYdTarihAraligi() {
+    if (typeof _canMail === 'function' && !_canMail()) { toast('Mail gönderme yetkiniz yok', 'err'); return; }
+    var ayar = _ebistrAyarCache || {};
+    if (!ayar.smtpUser || !ayar.smtpPass) { toast('SMTP ayarları eksik', 'err'); return; }
+
+    var fBas = (document.getElementById('ebistr-f-bas') || {}).value || '';
+    var fBit = (document.getElementById('ebistr-f-bit') || {}).value || '';
+    var tarihListe = _ebistrTarihAraliginda(ebistrAnalizler, fBas, fBit);
+    var hedefler = tarihListe.filter(function (a) { return !a.mailGonderildi; });
+    if (!hedefler.length) {
+        toast('Bu aralıkta (veya filtreye göre) gönderilmemiş rapor yok', 'amb');
+        return;
+    }
+
+    var ydGruplari = {};
+    hedefler.forEach(function (a) {
+        var yd = ebistrYdBul(a.yapiDenetim);
+        if (!yd || !yd.mail1 || !yd.aktif) return;
+        var key = a.yapiDenetim || 'bilinmiyor';
+        if (!ydGruplari[key]) ydGruplari[key] = { yd: yd, raporlar: [] };
+        ydGruplari[key].raporlar.push(a);
+    });
+
+    var ydKeys = Object.keys(ydGruplari);
+    if (!ydKeys.length) {
+        toast('Aralıktaki raporlar için tanımlı mail adresi olan YD bulunamadı', 'err');
+        return;
+    }
+
+    var firmaSayisi = ydKeys.length;
+    var aralikTxt =
+        fBas || fBit
+            ? 'Kırım tarihi: ' + (fBas ? fmtD(fBas) : '…') + ' — ' + (fBit ? fmtD(fBit) : '…')
+            : 'Kırım tarihi seçilmedi (tüm raporlar)';
+    if (
+        !confirm(
+            aralikTxt +
+                '\n\n' +
+                firmaSayisi +
+                ' firmaya, gönderilmemiş ' +
+                hedefler.length +
+                ' rapor için toplu mail (firma başına 1 mail) gidecek.\n\nOnaylıyor musunuz?'
+        )
+    ) {
+        return;
+    }
+
+    var mailler = [];
+    ydKeys.forEach(function (key) {
+        var grp = ydGruplari[key];
+        var yd = grp.yd;
+        var alicilar = [yd.mail1, yd.mail2, ayar.smtpCc].filter(Boolean);
+        var html = _ebistrTopluMailHtml(grp.raporlar, ayar.smtpUser, yd.ad || key);
+        var sayilar = { UYGUNSUZ: 0, SAPMA_KURTARDI: 0, UYARI: 0, UYGUN: 0, HAFTALIK: 0 };
+        grp.raporlar.forEach(function (a) {
+            if (sayilar.hasOwnProperty(a.durum)) sayilar[a.durum]++;
+        });
+        var parcalar = [];
+        if (sayilar.UYGUNSUZ) parcalar.push(sayilar.UYGUNSUZ + ' uygunsuz');
+        if (sayilar.SAPMA_KURTARDI) parcalar.push(sayilar.SAPMA_KURTARDI + ' sapma uyarisi');
+        if (sayilar.UYARI) parcalar.push(sayilar.UYARI + ' sapmali');
+        if (sayilar.UYGUN) parcalar.push(sayilar.UYGUN + ' uygun');
+        if (sayilar.HAFTALIK) parcalar.push(sayilar.HAFTALIK + ' haftalik 7g');
+        var konu =
+            'Beton Raporu: ' +
+            grp.raporlar.length +
+            ' sonuc — ' +
+            parcalar.join(', ') +
+            ' (' +
+            new Date().toLocaleDateString('tr-TR') +
+            ')';
+        alicilar.forEach(function (to) {
+            mailler.push({ to: to, konu: konu, html: html });
+        });
+    });
+
+    if (!mailler.length) {
+        toast('Mail listesi oluşturulamadı', 'err');
+        return;
+    }
+    toast(firmaSayisi + ' firmaya ' + mailler.length + ' mail gönderiliyor...', 'amb');
+
+    fetch(EBISTR_PROXY() + '/api/mail/gonder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            smtp: { user: ayar.smtpUser, pass: ayar.smtpPass },
+            mailler: mailler.map(function (m) {
+                return { to: m.to, konu: m.konu, html: m.html };
+            })
+        })
+    })
+        .then(function (r) {
+            return r.json();
+        })
+        .then(function (d) {
+            if (d.ok) {
+                hedefler.forEach(function (a) {
+                    a.mailGonderildi = true;
+                    _ebistrMailDurum[a.brnNo || a.labReportNo || ''] = true;
+                });
+                ebistrFiltrele();
+                fbSyncEBISTR(ebistrNumuneler, ebistrAnalizler);
+                toast(d.gonderilen + ' mail gönderildi (' + firmaSayisi + ' firma)', 'ok');
+                logAction('EBİSTR Toplu Mail (tüm YD, tarih aralığı)', firmaSayisi + ' firmaya ' + hedefler.length + ' rapor');
+            } else {
+                toast('Hata: ' + JSON.stringify(d.hatalar), 'err');
+            }
+        })
+        .catch(function (e) {
+            toast('Proxy hatası: ' + e.message, 'err');
+        });
+}
+
 // ── TEK FİRMA TOPLU MAİL (header butonundan) ──────────────────────
 function ebistrTopluMailFirma(encodedFirmaAd) {
     if (typeof _canMail === 'function' && !_canMail()) { toast('Mail gönderme yetkiniz yok', 'err'); return; }
@@ -2059,9 +2294,8 @@ function ebistrTopluMailFirma(encodedFirmaAd) {
     var yd = ebistrYdBul(firmaAd);
     if (!yd || !yd.mail1) { toast('Bu firmaya tanımlı mail adresi yok', 'err'); return; }
 
-    // Filtredeki tüm bu firmaya ait raporlar
-    var raporlar = ebistrFiltreliListe.filter(function(a) { return a.yapiDenetim === firmaAd; });
-    if (!raporlar.length) { toast('Bu firmaya ait rapor yok', 'amb'); return; }
+    var raporlar = _ebistrFirmaRaporlariFiltreli(firmaAd);
+    if (!raporlar.length) { toast('Bu firmaya ait rapor yok (tarih / filtre)', 'amb'); return; }
 
     var sz = {UYGUNSUZ:0,SAPMA_KURTARDI:0,UYARI:0,UYGUN:0,HAFTALIK:0};
     raporlar.forEach(function(a){ if(sz.hasOwnProperty(a.durum)) sz[a.durum]++; });
@@ -2105,8 +2339,8 @@ function ebistrTopluMailFirma(encodedFirmaAd) {
 // ── TOPLU MAIL ÖNİZLE ─────────────────────────────────────────────
 function ebistrTopluMailOnizle(encodedFirmaAd) {
     var firmaAd = decodeURIComponent(encodedFirmaAd);
-    var raporlar = ebistrFiltreliListe.filter(function(a) { return a.yapiDenetim === firmaAd; });
-    if (!raporlar.length) { toast('Bu firmaya ait rapor yok', 'amb'); return; }
+    var raporlar = _ebistrFirmaRaporlariFiltreli(firmaAd);
+    if (!raporlar.length) { toast('Bu firmaya ait rapor yok (tarih / filtre)', 'amb'); return; }
     var ayar = _ebistrAyarCache || {};
     var html = _ebistrTopluMailHtml(raporlar, ayar.smtpUser || 'Alibey Lab', firmaAd);
     var frame = document.getElementById('ebistr-mail-frame');
@@ -2214,9 +2448,23 @@ function _ebistrTopluMailHtml(raporlar, fromUser, firmaAd) {
         );
     }).join('');
 
-    // Kritik rapor sayısı (detay kartlar kaldırıldı — özet tablo tüm bilgileri içeriyor)
+    // Uygunsuz / sapmalı / sapma çıkarılınca uygun — tekrar tekil mail gövdesi
     var kritikDurumlar = ['UYGUNSUZ', 'SAPMA_KURTARDI', 'UYARI'];
-    var kritikRaporlar = raporlar.filter(function(a) { return kritikDurumlar.indexOf(a.durum) >= 0; });
+    var kritikRaporlar = raporlar.filter(function (a) { return kritikDurumlar.indexOf(a.durum) >= 0; });
+    var tekrarHtml = '';
+    kritikRaporlar.forEach(function (a) {
+        var baslik = a.labReportNo || a.brnNo || '—';
+        var tek = ebistrMailHtml(a, fromUser || 'Alibey Lab');
+        var ic = _ebistrMailHtmlBodyIc(tek);
+        if (!ic) return;
+        tekrarHtml +=
+            '<tr><td style="padding:28px 0 0">' +
+            '<div style="font-size:11px;font-weight:800;color:#475569;margin-bottom:12px;letter-spacing:.08em;text-transform:uppercase;border-bottom:2px solid #cbd5e1;padding-bottom:8px">Tekli rapor detayı — ' +
+            baslik +
+            '</div>' +
+            ic +
+            '</td></tr>';
+    });
 
     // Genel istatistik
     var genelFcm = raporlar.filter(function(a){ return a.fcm > 0; });
@@ -2268,6 +2516,8 @@ function _ebistrTopluMailHtml(raporlar, fromUser, firmaAd) {
                 satirlar +
             '</table>' +
         '</td></tr>' +
+
+        tekrarHtml +
 
         // ── GENEL İSTATİSTİK ──
         (ortFcm > 0 ? (

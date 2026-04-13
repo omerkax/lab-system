@@ -6042,7 +6042,7 @@
             var hasId = !!(m.msgid && m.msgid !== 'NO_ID');
             var notDelivered = (m.status !== 'İletildi');
             return isSms && hasId && notDelivered;
-        }).slice(0, 30);
+        }).slice(0, 20);
 
         console.log('Rapor Sorgulama Başlıyor. Bekleyen Kayıt Sayısı:', pending.length);
         if (pending.length > 0) console.log('Taranacak ID listesi:', pending.map(function (x) { return x.msgid }));
@@ -6067,25 +6067,36 @@
 
                         // NetGSM v2 Durum Kodları: 0=İletildi, 1=İletilmedi, 2=Kuyrukta, 11-14=Hatalı
                         var t = (txt || '').trim();
+                        // Köprü / HTTP / oran sınırı — gövdeden rakam çıkarma; yanlış "İletildi" yazma
+                        if (/^STATUS\|ERR\|/i.test(t) || /RATE_LIMIT|too many requests|\b429\b/i.test(t)) {
+                            res();
+                            return;
+                        }
+                        var looksLikeNetgsmXml =
+                            t.indexOf('<?xml') >= 0 || /<bulkreport/i.test(t) || /<mainbody/i.test(t) || /<report/i.test(t);
                         // Proxy normalize formatı: STATUS|<code>|...
-                        var px = t.match(/^STATUS\|([0-9]{1,2}|NA)\|/);
+                        var px = t.match(/^STATUS\|([0-9]{1,2}|NA)\|/i);
                         var statusCode = px ? px[1] : null;
-                        // Ham format fallback
+                        // Ham format fallback: yalnızca gerçek NetGSM XML / düz metin raporunda rakam ara
                         if (!statusCode || statusCode === 'NA') {
+                            if (!looksLikeNetgsmXml && /hata|error|fail|exception|<!DOCTYPE|DOCTYPE html|<html/i.test(t)) {
+                                res();
+                                return;
+                            }
                             var mCode = t.match(/(?:^|[^\d])(11|12|13|14|0|1|2|3|4)(?:[^\d]|$)/);
-                            if (mCode) statusCode = mCode[1];
+                            if (mCode && (looksLikeNetgsmXml || !/^STATUS\|/i.test(t))) statusCode = mCode[1];
                         }
                         // v2: 0=İletildi, 2/4=Kuyrukta, 1/3/11-14=Hatalı
                         if (statusCode === '0') newStatus = 'İletildi';
                         else if (statusCode === '2' || statusCode === '4') newStatus = 'Beklemede';
                         else if (statusCode && ['1', '3', '11', '12', '13', '14'].indexOf(statusCode) >= 0) newStatus = 'Hatalı';
-                        else if (t.indexOf('İletildi') >= 0 || t.indexOf('DELIV') >= 0) {
+                        else if (looksLikeNetgsmXml && (t.indexOf('İletildi') >= 0 || t.indexOf('DELIV') >= 0)) {
                             newStatus = 'İletildi';
                         }
-                        else if (t.indexOf('Beklemede') >= 0 || t.indexOf('PEND') >= 0) {
+                        else if (looksLikeNetgsmXml && (t.indexOf('Beklemede') >= 0 || t.indexOf('PEND') >= 0)) {
                             newStatus = 'Beklemede';
                         }
-                        else if (t.indexOf('Hata') >= 0 || t.indexOf('ERROR') >= 0 || t.indexOf('Failed') >= 0) {
+                        else if (looksLikeNetgsmXml && (t.indexOf('Hata') >= 0 || t.indexOf('ERROR') >= 0 || t.indexOf('Failed') >= 0)) {
                             newStatus = 'Hatalı';
                         }
 
@@ -6096,7 +6107,7 @@
                         }
                         res();
                     }).catch(res);
-                }, i * 450);
+                }, i * 750);
             }));
         });
 
