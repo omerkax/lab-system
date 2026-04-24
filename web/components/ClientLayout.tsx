@@ -3,6 +3,7 @@ import { useState } from 'react';
 import LabRouteGuard from './LabRouteGuard';
 import PersonelAccessBridge from './PersonelAccessBridge';
 import Sidebar from './Sidebar';
+import GlobalModals from './GlobalModals';
 import TelemetriAlarmBanner from './TelemetriAlarmBanner';
 import TelemetriPoller from './TelemetriPoller';
 import EbistrBackgroundSync from './EbistrBackgroundSync';
@@ -44,6 +45,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         </LabRouteGuard>
       </main>
       <TelemetriPoller />
+      <GlobalModals />
     </div>
   );
 }
