@@ -14,6 +14,17 @@
     var DB_URL = "https://firestore.googleapis.com/v1/projects/" + FB_CONFIG.projectId + "/databases/(default)/documents";
     var DB_KEY = FB_CONFIG.apiKey;
 
+    function safeParseTrDate(s) {
+        if (!s) return 0;
+        if (s instanceof Date) return s.getTime();
+        var str = String(s).trim();
+        // DD.MM.YYYY
+        var m = str.match(/^(\d{1,2})[\.\/](\d{1,2})[\.\/](\d{4})/);
+        if (m) return new Date(m[3], m[2] - 1, m[1]).getTime();
+        var d = new Date(str);
+        return isNaN(d.getTime()) ? 0 : d.getTime();
+    }
+
     /** layout / env ile aynı kök; eski *.vercel.app env iken sayfa özel domaindeyse location.origin kullan */
     function labPublicOrigin() {
         if (typeof window === 'undefined') return '';
@@ -1759,7 +1770,11 @@
     function fbPullMsgLog() {
         return fsGet('msg_log').then(function (rows) {
             if (!rows.length) return;
-            msgLog = rows.sort(function (a, b) { return b.tarih > a.tarih ? 1 : -1; }).slice(0, 500);
+            msgLog = rows.sort(function (a, b) {
+                var dA = new Date(a.tarih).getTime();
+                var dB = new Date(b.tarih).getTime();
+                return dB - dA;
+            }).slice(0, 500);
             renderMsgLog();
         });
     }
@@ -3739,6 +3754,14 @@
             if (activeTip !== 'ALL' && tip !== activeTip) return false;
             return true;
         });
+
+        // Rapor Defteri Sıralaması: Tarihe göre (Eski -> Yeni döküm sırası)
+        filteredData.sort(function(a, b) {
+            var dA = safeParseTrDate(a['NMN.ALINIŞ TARİHİ']);
+            var dB = safeParseTrDate(b['NMN.ALINIŞ TARİHİ']);
+            return dA - dB;
+        });
+
         if (!filteredData.length) {
             toast('Bu kriterlere uygun kayıt yok', 'err');
             return;
@@ -5722,7 +5745,7 @@
         var statFil = (document.getElementById('msgLogStatFil') || {}).value || 'all';
         var q = ((document.getElementById('msgLogSearch') || {}).value || '').toLowerCase().trim();
 
-        var list = (msgLog || []).slice().reverse().filter(function (e) {
+        var list = (msgLog || []).slice().filter(function (e) {
             if (turFil === 'kargo') return e.msgTip === 'kargo';
             if (turFil === 'bakiye') return !e.msgTip || e.msgTip === 'bakiye';
             return true;
@@ -5826,7 +5849,7 @@
     function exportMsgLogCsv() {
         var turFil = (document.getElementById('msgLogTurFil') || {}).value || 'all';
         var q = ((document.getElementById('msgLogSearch') || {}).value || '').toLowerCase().trim();
-        var list = (msgLog || []).slice().reverse().filter(function (e) {
+        var list = (msgLog || []).slice().filter(function (e) {
             if (turFil === 'kargo') return e.msgTip === 'kargo';
             if (turFil === 'bakiye') return !e.msgTip || e.msgTip === 'bakiye';
             return true;
@@ -6096,16 +6119,16 @@
                             if (mCode && (looksLikeNetgsmXml || !/^STATUS\|/i.test(t))) statusCode = mCode[1];
                         }
                         // v2: 0=İletildi, 2/4=Kuyrukta, 1/3/11-14=Hatalı
-                        if (statusCode === '0') newStatus = 'İletildi';
+                        else if (statusCode === '0') newStatus = 'İletildi';
                         else if (statusCode === '2' || statusCode === '4') newStatus = 'Beklemede';
                         else if (statusCode && ['1', '3', '11', '12', '13', '14'].indexOf(statusCode) >= 0) newStatus = 'Hatalı';
-                        else if (looksLikeNetgsmXml && (t.indexOf('İletildi') >= 0 || t.indexOf('DELIV') >= 0)) {
-                            newStatus = 'İletildi';
+                        else if (t.indexOf('İletildi') >= 0 || t.indexOf('DELIV') >= 0 || t.indexOf('Gönderildi') >= 0 || t.indexOf('SENT') >= 0) {
+                            newStatus = (t.indexOf('İletildi') >= 0 || t.indexOf('DELIV') >= 0) ? 'İletildi' : 'Beklemede';
                         }
-                        else if (looksLikeNetgsmXml && (t.indexOf('Beklemede') >= 0 || t.indexOf('PEND') >= 0)) {
+                        else if (t.indexOf('Beklemede') >= 0 || t.indexOf('PEND') >= 0 || t.indexOf('Kuyrukta') >= 0) {
                             newStatus = 'Beklemede';
                         }
-                        else if (looksLikeNetgsmXml && (t.indexOf('Hata') >= 0 || t.indexOf('ERROR') >= 0 || t.indexOf('Failed') >= 0)) {
+                        else if (t.indexOf('Hata') >= 0 || t.indexOf('ERROR') >= 0 || t.indexOf('Failed') >= 0 || t.indexOf('Reddedildi') >= 0) {
                             newStatus = 'Hatalı';
                         }
 

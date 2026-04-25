@@ -254,6 +254,10 @@ export function hydrateEbistrFallbackFromJsonIfEmpty(): void {
   if (!state.cache.sonGuncelleme) {
     state.cache.sonGuncelleme = 'snapshot:ebistr-numuneler.json';
   }
+  // Soğuk başlangıçta diskteki veriyi 'numuneler'e de al, /api/ebistr/status dolu dönsün
+  if (rows.length > 0 && state.cache.numuneler.length === 0) {
+    state.cache.numuneler = rows;
+  }
 }
 
 /** İstemcilerden gelen mail gönderildi bayraklarını birleştirir ve diske yazar */
@@ -417,15 +421,21 @@ function ebistrBrowserHeaders(authToken: string): HeadersInit {
 
 const fetchWithRetry = async (url: string, options: RequestInit, retries = 3): Promise<any> => {
   let lastErr = '';
+  // Vercel timeout protection
+  const timeout = 60000; 
   for (let i = 0; i < retries; i++) {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeout);
     try {
-      const res = await fetch(url, options);
+      const res = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(id);
       if (res.ok) return await res.json();
       if (res.status === 401 || res.status === 403) throw new Error('TOKEN_EXPIRED');
       lastErr = `HTTP ${res.status}`;
     } catch (e: any) {
+      clearTimeout(id);
       if (e.message === 'TOKEN_EXPIRED') throw e;
-      lastErr = e.message;
+      lastErr = e.name === 'AbortError' ? 'ZAMAN_ASIMI' : e.message;
       await new Promise(r => setTimeout(r, 1000 * (i + 1)));
     }
   }
@@ -445,7 +455,7 @@ export async function performSync(): Promise<void> {
     if (!activeToken) { console.warn('[ebistr] Geçerli token yok.'); return; }
 
     const takeBas = new Date();
-    takeBas.setDate(takeBas.getDate() - 45);
+    takeBas.setDate(takeBas.getDate() - 120); // 45 -> 120 days to cover 90-day tests and delays
     const fmt = (d: Date) => d.toISOString().split('T')[0];
 
     const commonHeaders: HeadersInit = ebistrBrowserHeaders(activeToken);
@@ -584,63 +594,68 @@ export async function performSync(): Promise<void> {
 
 // ── Normalizasyon ──────────────────────────────────────────────────
 export function normalizeNumune(n: any) {
-  const y = n.yibf || {};
-  const yd = (y.ydf?.name) ? y.ydf.name : '';
-  const getStr = (v: any) => { if (!v) return ''; if (typeof v === 'string') return v; return v.name || v.title || v.fullName || ''; };
-  const own = getStr(y.buildingOwner) || getStr(y.ownerName) || getStr(y.owner) || getStr(y.applicant) || '';
-  const ctr = getStr(y.contractor) || getStr(y.contractorName) || '';
-  const adr = y.buildingAddress || y.address || '';
-  const yibfNo = y.no || y.number || y.yibfNo || y.registrationNo || (y.id ? String(y.id) : '');
-  const fc = parseFloat((n.pressureResistance || 0).toFixed(4));
+  try {
+    const y = n.yibf || {};
+    const yd = (y.ydf?.name) ? y.ydf.name : '';
+    const getStr = (v: any) => { if (!v) return ''; if (typeof v === 'string') return v; return v.name || v.title || v.fullName || ''; };
+    const own = getStr(y.buildingOwner) || getStr(y.ownerName) || getStr(y.owner) || getStr(y.applicant) || '';
+    const ctr = getStr(y.contractor) || getStr(y.contractorName) || '';
+    const adr = y.buildingAddress || y.address || '';
+    const yibfNo = y.no || y.number || y.yibfNo || y.registrationNo || (y.id ? String(y.id) : '');
+    const fc = parseFloat((n.pressureResistance || 0).toFixed(4));
 
-  const tzFix = (s: string) => { if (!s) return ''; const d = new Date(new Date(s).getTime() + 3 * 60 * 60 * 1000); return d.toISOString().substring(0, 16).replace('T', ' '); };
+    const tzFix = (s: string) => { if (!s) return ''; const d = new Date(new Date(s).getTime() + 3 * 60 * 60 * 1000); return d.toISOString().substring(0, 16).replace('T', ' '); };
 
-  const getStr2 = (v: any) => { if (v === null || v === undefined) return ''; if (typeof v === 'string') return v.trim(); if (typeof v === 'number') return v !== 0 ? String(v) : ''; return (v.name || v.title || v.code || v.value || '').trim(); };
-  const parts: string[] = [];
-  const blok = getStr2(n.block) || getStr2(n.buildingBlock) || getStr2(n.blok) || '';
-  const kat  = getStr2(n.floor) || getStr2(n.buildingFloor) || getStr2(n.storey) || getStr2(n.concreteFloor) || '';
-  const aks  = getStr2(n.axis) || getStr2(n.aks) || getStr2(n.buildingAxis) || '';
-  const kot  = getStr2(n.elevation) || getStr2(n.kot) || '';
-  const elem = getStr2(n.structuralComponent) || getStr2(n.concreteLocation) || '';
-  if (blok) parts.push('Bl:' + blok);
-  if (kat)  parts.push('K:' + kat);
-  if (aks)  parts.push('Aks:' + aks);
-  if (kot)  parts.push('Kot:' + kot);
-  if (elem) parts.push(elem);
+    const getStr2 = (v: any) => { if (v === null || v === undefined) return ''; if (typeof v === 'string') return v.trim(); if (typeof v === 'number') return v !== 0 ? String(v) : ''; return (v.name || v.title || v.code || v.value || '').trim(); };
+    const parts: string[] = [];
+    const blok = getStr2(n.block) || getStr2(n.buildingBlock) || getStr2(n.blok) || '';
+    const kat  = getStr2(n.floor) || getStr2(n.buildingFloor) || getStr2(n.storey) || getStr2(n.concreteFloor) || '';
+    const aks  = getStr2(n.axis) || getStr2(n.aks) || getStr2(n.buildingAxis) || '';
+    const kot  = getStr2(n.elevation) || getStr2(n.kot) || '';
+    const elem = getStr2(n.structuralComponent) || getStr2(n.concreteLocation) || '';
+    if (blok) parts.push('Bl:' + blok);
+    if (kat)  parts.push('K:' + kat);
+    if (aks)  parts.push('Aks:' + aks);
+    if (kot)  parts.push('Kot:' + kot);
+    if (elem) parts.push(elem);
 
-  return {
-    brnNo:          n.brnNo || '',
-    labNo:          n.labNo || '',
-    labReportNo:    n.labReportNo || '',
-    takeDate:       tzFix(n.takeDate),
-    breakDate:      tzFix(n.breakDate),
-    curingGun:      n.curingTime ? (n.curingTime.id || 0) : 0,
-    betonSinifi:    n.concreteClass?.name || '',
-    fckSil:         n.concreteClass?.resistance || 0,
-    fckKup:         n.concreteClass?.resistanceCube || 0,
-    numuneBoyutu:   n.sampleSize?.name || '',
-    fc,
-    irsaliye:       n.wayBillNumber || '',
-    yapiElem:       parts.join(' / '),
-    yapiDenetim:    yd,
-    contractor:     ctr,
-    buildingOwner:  own,
-    buildingAddress: adr,
-    manufacturer:   getStr(n.manufacturer) || getStr(n.concreteFirm) || getStr(n.freshConcreteFirm) || '',
-    m3:             n.totalConcreteQuantityByCurrent || 0,
-    totalM3:        n.totalConcreteQuantityByDaily || 0,
-    hesapDisi:      !!n.outOfCalculation,
-    yibf:           yibfNo,
-    worksiteOutDate: tzFix(n.worksiteOutDate || n.concreteWorksiteOut?.date),
-    cureDate:       tzFix(n.cureDate || n.concreteCure?.date || n.concreteCure?.startDate),
-    state:          (() => {
-      const s = n.state;
-      if (s == null || s === '') return '';
-      if (typeof s === 'string') return s.trim();
-      if (typeof s === 'object') return String((s as any).name || (s as any).code || (s as any).title || (s as any).value || '').trim();
-      return String(s);
-    })(),
-  };
+    return {
+      brnNo:          n.brnNo || '',
+      labNo:          n.labNo || '',
+      labReportNo:    n.labReportNo || '',
+      takeDate:       tzFix(n.takeDate),
+      breakDate:      tzFix(n.breakDate),
+      curingGun:      n.curingTime ? (n.curingTime.id || 0) : 0,
+      betonSinifi:    n.concreteClass?.name || '',
+      fckSil:         n.concreteClass?.resistance || 0,
+      fckKup:         n.concreteClass?.resistanceCube || 0,
+      numuneBoyutu:   n.sampleSize?.name || '',
+      fc,
+      irsaliye:       n.wayBillNumber || '',
+      yapiElem:       parts.join(' / '),
+      yapiDenetim:    yd,
+      contractor:     ctr,
+      buildingOwner:  own,
+      buildingAddress: adr,
+      manufacturer:   getStr(n.manufacturer) || getStr(n.concreteFirm) || getStr(n.freshConcreteFirm) || '',
+      m3:             n.totalConcreteQuantityByCurrent || 0,
+      totalM3:        n.totalConcreteQuantityByDaily || 0,
+      hesapDisi:      !!n.outOfCalculation,
+      yibf:           yibfNo,
+      worksiteOutDate: tzFix(n.worksiteOutDate || n.concreteWorksiteOut?.date),
+      cureDate:       tzFix(n.cureDate || n.concreteCure?.date || n.concreteCure?.startDate),
+      state:          (() => {
+        const s = n.state;
+        if (s == null || s === '') return '';
+        if (typeof s === 'string') return s.trim();
+        if (typeof s === 'object') return String((s as any).name || (s as any).code || (s as any).title || (s as any).value || '').trim();
+        return String(s);
+      })(),
+    };
+  } catch (e: any) {
+    console.warn('[ebistr] normalizeNumune error:', e.message, n);
+    return { brnNo: n.brnNo || 'ERR', labNo: n.labNo || '', error: true, takeDate: n.takeDate || '' };
+  }
 }
 
 export function getCache(): EbistrCache { return getState().cache; }

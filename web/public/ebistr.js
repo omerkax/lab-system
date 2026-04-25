@@ -1974,6 +1974,11 @@ function ebistrAyarKaydet(sessiz) {
     var smtpC  = document.getElementById('ebistr-smtp-cc');
     var proxyU = document.getElementById('ebistr-proxy-url-inp');
     var mailK  = document.getElementById('ebistr-mail-kosul');
+    
+    if (!_ebistrAyarHydrated && (!smtpU || !smtpU.value)) {
+        console.warn('ebistrAyarKaydet: Hydration not finished, skipping save to prevent data loss.');
+        return;
+    }
 
     var smtpUserVal = smtpU ? String(smtpU.value || '').trim() : '';
     if (smtpU && !smtpUserVal && prev.smtpUser) smtpUserVal = prev.smtpUser;

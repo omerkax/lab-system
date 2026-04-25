@@ -143,6 +143,17 @@ export async function GET(req: NextRequest) {
     const m = txt.match(/(?:^|[^\d])(11|12|13|14|0|1|2|3|4)(?:[^\d]|$)/);
     if (m) statusCode = m[1];
     if (statusCode === null || statusCode === '') statusCode = 'NA';
+
+    // Text based fallbacks for common NetGSM statuses
+    if (statusCode === '1' || statusCode === 'NA') {
+      const low = txt.toLowerCase();
+      if (low.includes('iletildi') || low.includes('deliv') || low.includes('gonderildi') || low.includes('sent')) {
+        statusCode = '0'; // Map to success or pending (handled by frontend)
+      } else if (low.includes('kuyruk') || low.includes('bekle') || low.includes('pend')) {
+        statusCode = '4';
+      }
+    }
+
     return new NextResponse(`STATUS|${statusCode}|${txt}`, {
       headers: withVia({ ...plain }, 'direct', relayFallback),
     });
